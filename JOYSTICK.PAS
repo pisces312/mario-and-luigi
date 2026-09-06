@@ -41,6 +41,7 @@ interface
   procedure ReadJoystick;
   procedure ResetJoystick;
   procedure Calibrate;
+  procedure DetectJoystick;
 
 implementation
 
@@ -151,23 +152,33 @@ implementation
       jsCalibrated := TRUE;
   end;
 
-begin
-  SDLJoystick := nil;
-  jsCalibrated := FALSE;
-  jsWaitButton := FALSE;
-  jsDetected := FALSE;
-  jsEnabled := FALSE;
-
-  { Try to open joystick if available }
-  if SDL_NumJoysticks > 0 then
+  procedure DetectJoystick;
   begin
-    SDLJoystick := SDL_JoystickOpen(0);
-    if SDLJoystick <> nil then
+    jsCalibrated := FALSE;
+    jsWaitButton := FALSE;
+    jsDetected := FALSE;
+    jsEnabled := FALSE;
+
+    { Try to open joystick if available }
+    if SDL_NumJoysticks > 0 then
     begin
-      jsDetected := TRUE;
-      jsEnabled := TRUE;
+      SDLJoystick := SDL_JoystickOpen(0);
+      if SDLJoystick <> nil then
+      begin
+        jsDetected := TRUE;
+        jsEnabled := TRUE;
+      end;
     end;
+
+    ReadJoystick;
   end;
 
-  ReadJoystick;
+begin
+  SDLJoystick := nil;
+{$IFNDEF ANDROID}
+  { Windows/desktop: 单元加载时自动探测 (保持原时序) }
+  DetectJoystick;
+{$ENDIF}
+  { Android: 延迟到 SDL_Init 之后由 SDL_main 显式调用 DetectJoystick,
+    避免 dlopen 时触发 SDL joystick 惰性初始化注册加速度计虚拟手柄 }
 end.

@@ -414,6 +414,13 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
 
         setContentView(mLayout);
 
+                // Mario & Luigi: touch overlay (virtual keys -> onNativeKeyDown/Up)
+        try {
+            mLayout.addView(new org.libsdl.app.TouchPadView(this));
+        } catch (Exception e) {
+            android.util.Log.e("SDL", "TouchPadView mount failed: " + e);
+        }
+
         setWindowStyle(false);
 
         getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(this);

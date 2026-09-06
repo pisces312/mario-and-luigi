@@ -1,6 +1,6 @@
 # build-android.ps1 — Mario & Luigi Android 侧一键构建
 # 1) ndk-build 交叉编译 SDL2 → libSDL2.so (arm64-v8a + x86_64)
-# 2) ppcross* 交叉编译 libmain.so (FPC, 导出 SDL_main)
+# 2) ppcross* 交叉编译 libmain.so (FPC, 导出 SDL_main; 源码 MARIO_ANDROID.PAS)
 # 3) .so 复制到 app/src/main/jniLibs/<abi>/
 # 之后用 gradlew.bat assembleDebug 打 APK
 #
@@ -20,6 +20,14 @@ $NDKBuild  = 'D:\dev\android_sdk\ndk\29.0.14206865\ndk-build.cmd'  # SDL2 C 库�
 #   * GNU as/ld + r21e 平台库 仅用于 FPC 侧, SDL2 与游戏资源均在 NDK 29 编译
 $PPBin     = 'D:\dev\FPC-android\bin\i386-win32'
 $RTLRoot   = 'D:\dev\FPC-android\units'
+
+# 游戏 Pascal 入口 (Android 专用: library + SDL_main)
+$PascalMain = "$Repo\MARIO_ANDROID.PAS"
+
+# FPC 编译参数 — 与 Windows 版 (build-win32.ps1) 一致 + Android 目标
+#   -Mtp: Turbo Pascal 模式 (Integer=16bit, 保持 1994 原版语义)
+#   -dANDROID: JOYSTICK.PAS 条件编译 (延迟手柄探测到 SDL_Init 之后)
+$FpcOpts = @('-Mtp', '-Ci-', '-Cr-', '-Sg', '-Si', '-O-', '-dANDROID')
 
 # ABI → 工具链配置
 #   toolchain: NDK r21e 内 4.9 binutils 目录名
@@ -54,25 +62,23 @@ try {
     }
 } finally { Pop-Location }
 
-# --- 2) FPC libmain.so (双 ABI) ---
+# --- 2) FPC libmain.so (双 ABI, 全量游戏单元自动编译) ---
 Write-Host '=== [2/2] ppcross* libmain.so ==='
-$PascalMain = 'D:\workspace\mario-android-port\spike\sdl_hello.pas'
 foreach ($abi in $ABIs.Keys) {
     $cfg = $ABIs[$abi]
     Write-Host "  -- ABI: $abi"
-    $unitDir = "$Root\build\sdl2-unit-$abi"
+    $unitDir = "$Root\build\units-$abi"
     $out = "$Root\build\libmain-$abi"
     $jniLibs = "$Root\app\src\main\jniLibs\$abi"
     New-Item -ItemType Directory -Force -Path $unitDir | Out-Null
 
-    # sdl2 绑定单元 (ppu 目标相关, 每 ABI 一份)
-    & $cfg.ppc -Tandroid "-FD$($cfg.toolchain)" "-Fu$($cfg.rtl)" "-Fu$unitDir" "-FU$unitDir" "$Repo\SDL2-for-Pascal\sdl2.pas"
-    if ($LASTEXITCODE -ne 0) { throw "sdl2 单元编译失败 ($abi)" }
-
-    # libmain
+    # 在仓库根编译: MARIO_ANDROID.PAS 依赖 {$I sprites\*.inc} 相对路径
     $env:PATH = "$($cfg.toolchain);$env:PATH"
-    & $cfg.ppc -Tandroid "-FD$($cfg.toolchain)" "-Fu$($cfg.rtl)" "-Fu$unitDir" "-k-L$($cfg.platlib)" "-k-L$jniLibs" "-XP$($cfg.pre)" "-o$out" $PascalMain
-    if ($LASTEXITCODE -ne 0) { throw "libmain 编译失败 ($abi)" }
+    Push-Location $Repo
+    try {
+        & $cfg.ppc -Tandroid $FpcOpts "-FD$($cfg.toolchain)" "-Fu$($cfg.rtl)" "-Fu$unitDir" "-Fu$Repo" "-Fu$Repo\SDL2-for-Pascal" "-FU$unitDir" "-k-L$($cfg.platlib)" "-k-L$jniLibs" "-XP$($cfg.pre)" "-o$out" $PascalMain
+        if ($LASTEXITCODE -ne 0) { throw "libmain 编译失败 ($abi)" }
+    } finally { Pop-Location }
 
     New-Item -ItemType Directory -Force -Path $jniLibs | Out-Null
     Copy-Item $out "$jniLibs\libmain.so" -Force
