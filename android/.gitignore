@@ -10,3 +10,6 @@ app/build/
 app/src/main/jniLibs/
 # 本地构建日志
 *.log
+
+# Gradle 缓存
+.gradle/

@@ -1,7 +1,7 @@
 # build-android.ps1 — Mario & Luigi Android 侧一键构建
-# 1) ndk-build 交叉编译 SDL2 → libSDL2.so (arm64-v8a)
-# 2) ppcrossa64 交叉编译 libmain.so (FPC, 导出 SDL_main)
-# 3) 两个 .so 复制到 app/src/main/jniLibs/arm64-v8a/
+# 1) ndk-build 交叉编译 SDL2 → libSDL2.so (arm64-v8a + x86_64)
+# 2) ppcross* 交叉编译 libmain.so (FPC, 导出 SDL_main)
+# 3) .so 复制到 app/src/main/jniLibs/<abi>/
 # 之后用 gradlew.bat assembleDebug 打 APK
 #
 # 用法: powershell -ExecutionPolicy Bypass -File build-android.ps1
@@ -11,40 +11,68 @@ $ErrorActionPreference = 'Stop'
 $Root      = $PSScriptRoot
 $Repo      = Split-Path $Root -Parent          # mario-and-luigi/
 $SDLPath   = "$Root\3rd\SDL"
-$JniLibs   = "$Root\app\src\main\jniLibs\arm64-v8a"
+$NDK       = 'D:\dev\android_sdk\ndk\21.4.7075529'          # FPC 链接用 (GNU binutils)
+$NDKBuild  = 'D:\dev\android_sdk\ndk\27.3.13750724\ndk-build.cmd'  # SDL2 C 库编译用
+$PPBin     = 'D:\dev\FPC-android\bin\i386-win32'
+$RTLRoot   = 'D:\dev\FPC-android\units'
 
-# --- 工具链（显式指定，不依赖 PATH） ---
-$PPCross   = 'D:\dev\FPC-android\bin\i386-win32\ppcrossa64.exe'
-$RTL       = 'D:\dev\FPC-android\units\aarch64-android\rtl'
-$NDK       = 'D:\dev\android_sdk\ndk\21.4.7075529'
-$NDKBin    = "$NDK\toolchains\aarch64-linux-android-4.9\prebuilt\windows-x86_64\bin"
-$NDKLib    = "$NDK\platforms\android-21\arch-arm64\usr\lib"
-$NDKBuild  = 'D:\dev\android_sdk\ndk\27.3.13750724\ndk-build.cmd'
+# ABI → 工具链配置
+#   toolchain: NDK r21e 内 4.9 binutils 目录名
+#   pre:      binutils 前缀 (FPC -XP)
+#   platlib:  平台库目录 (x86_64 在 lib64!)
+$ABIs = @{
+  'arm64-v8a' = @{
+    ppc      = "$PPBin\ppcrossa64.exe"
+    rtl      = "$RTLRoot\aarch64-android\rtl"
+    toolchain = "$NDK\toolchains\aarch64-linux-android-4.9\prebuilt\windows-x86_64\bin"
+    pre      = 'aarch64-linux-android-'
+    platlib  = "$NDK\platforms\android-21\arch-arm64\usr\lib"
+  }
+  'x86_64' = @{
+    ppc      = "$PPBin\ppcrossx64.exe"
+    rtl      = "$RTLRoot\x86_64-android\rtl"
+    toolchain = "$NDK\toolchains\x86_64-4.9\prebuilt\windows-x86_64\bin"
+    pre      = 'x86_64-linux-android-'
+    platlib  = "$NDK\platforms\android-21\arch-x86_64\usr\lib64"
+  }
+}
 
-# --- 1) SDL2 共享库 ---
+# --- 1) SDL2 共享库 (双 ABI) ---
 Write-Host '=== [1/2] ndk-build libSDL2.so ==='
 if (-not (Test-Path "$SDLPath\Android.mk")) { throw "SDL 源码缺失: $SDLPath" }
 Push-Location $Root
 try {
-    cmd /c "`"$NDKBuild`" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni\Android.mk NDK_APPLICATION_MK=jni\Application.mk NDK_OUT=obj NDK_LIBS_OUT=app\src\main\jniLibs -j8 2>&1"
-    if ($LASTEXITCODE -ne 0) { throw "ndk-build 失败 (exit=$LASTEXITCODE)" }
+    foreach ($abi in $ABIs.Keys) {
+        Write-Host "  -- ABI: $abi"
+        cmd /c "`"$NDKBuild`" NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=jni\Android.mk NDK_APPLICATION_MK=jni\Application.mk NDK_OUT=obj NDK_LIBS_OUT=app\src\main\jniLibs APP_ABI=$abi -j8 2>&1"
+        if ($LASTEXITCODE -ne 0) { throw "ndk-build 失败 ($abi, exit=$LASTEXITCODE)" }
+    }
 } finally { Pop-Location }
 
-# --- 2) FPC libmain.so ---
-Write-Host '=== [2/2] ppcrossa64 libmain.so ==='
-$PascalMain = Join-Path $PSScriptRoot (Join-Path '..\..\spike' 'sdl_hello.pas')
-# 编译 sdl2 单元（增量）
-New-Item -ItemType Directory -Force -Path "$Root\build\sdl2-unit" | Out-Null
-& $PPCross -Tandroid "-FD$NDKBin" "-Fu$RTL" "-Fu$Root\build\sdl2-unit" "-FU$Root\build\sdl2-unit" "$Repo\SDL2-for-Pascal\sdl2.pas"
-if ($LASTEXITCODE -ne 0) { throw 'sdl2 单元编译失败' }
-# 编译 libmain
-$env:PATH = "$NDKBin;$env:PATH"
-& $PPCross -Tandroid "-FD$NDKBin" "-Fu$RTL" "-Fu$Root\build\sdl2-unit" "-k-L$NDKLib" "-k-L$JniLibs" -XPaarch64-linux-android- -o"$Root\build\libmain" $PascalMain
-if ($LASTEXITCODE -ne 0) { throw 'libmain 编译失败' }
+# --- 2) FPC libmain.so (双 ABI) ---
+Write-Host '=== [2/2] ppcross* libmain.so ==='
+$PascalMain = 'D:\workspace\mario-android-port\spike\sdl_hello.pas'
+foreach ($abi in $ABIs.Keys) {
+    $cfg = $ABIs[$abi]
+    Write-Host "  -- ABI: $abi"
+    $unitDir = "$Root\build\sdl2-unit-$abi"
+    $out = "$Root\build\libmain-$abi"
+    $jniLibs = "$Root\app\src\main\jniLibs\$abi"
+    New-Item -ItemType Directory -Force -Path $unitDir | Out-Null
 
-# --- 3) 复制到 jniLibs ---
-New-Item -ItemType Directory -Force -Path $JniLibs | Out-Null
-Copy-Item "$Root\build\libmain" "$JniLibs\libmain.so" -Force
-Write-Host "=== 完成: $JniLibs ==="
-Get-ChildItem $JniLibs | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) B)" }
+    # sdl2 绑定单元 (ppu 目标相关, 每 ABI 一份)
+    & $cfg.ppc -Tandroid "-FD$($cfg.toolchain)" "-Fu$($cfg.rtl)" "-Fu$unitDir" "-FU$unitDir" "$Repo\SDL2-for-Pascal\sdl2.pas"
+    if ($LASTEXITCODE -ne 0) { throw "sdl2 单元编译失败 ($abi)" }
+
+    # libmain
+    $env:PATH = "$($cfg.toolchain);$env:PATH"
+    & $cfg.ppc -Tandroid "-FD$($cfg.toolchain)" "-Fu$($cfg.rtl)" "-Fu$unitDir" "-k-L$($cfg.platlib)" "-k-L$jniLibs" "-XP$($cfg.pre)" "-o$out" $PascalMain
+    if ($LASTEXITCODE -ne 0) { throw "libmain 编译失败 ($abi)" }
+
+    New-Item -ItemType Directory -Force -Path $jniLibs | Out-Null
+    Copy-Item $out "$jniLibs\libmain.so" -Force
+}
+
+Write-Host '=== 完成 ==='
+Get-ChildItem "$Root\app\src\main\jniLibs" -Recurse -Filter '*.so' | ForEach-Object { Write-Host "  $($_.FullName.Replace($Root,'.')) ($($_.Length) B)" }
 Write-Host '下一步: cd android && gradlew.bat assembleDebug'
