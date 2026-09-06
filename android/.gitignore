@@ -13,3 +13,5 @@ app/src/main/jniLibs/
 
 # Gradle 缓存
 .gradle/
+
+obj29/
