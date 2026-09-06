@@ -18,6 +18,9 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // 正式版只打 arm64-v8a；签名复用 debug keystore（可安装），后续可换正式证书
+            ndk { abiFilters += listOf("arm64-v8a") }
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
