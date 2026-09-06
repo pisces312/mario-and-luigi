@@ -1,0 +1,12 @@
+# SDL2 源码（可从 libsdl.org 重新下载，见 build-android.ps1）
+3rd/
+# ndk-build 中间产物
+obj/
+# FPC 编译中间产物
+build/
+# Gradle 构建产物
+app/build/
+# 编译出的 native 库（由 build-android.ps1 生成）
+app/src/main/jniLibs/
+# 本地构建日志
+*.log

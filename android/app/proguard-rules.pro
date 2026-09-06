@@ -1,0 +1,3 @@
+-keep class org.libsdl.app.** { *; }
+-keepclassmembers class org.libsdl.app.** { *; }
+-dontoptimize
