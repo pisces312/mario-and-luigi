@@ -1,0 +1,46 @@
+obj29/local/x86_64/objs/SDL2/src/joystick/hidapi/SDL_hidapi_combined.o: \
+  jni/../3rd/SDL/src/joystick/hidapi/SDL_hidapi_combined.c \
+  jni/../3rd/SDL/src/joystick/hidapi/../../SDL_internal.h \
+  jni/../3rd/SDL/src/joystick/hidapi/../../dynapi/SDL_dynapi.h \
+  jni/../3rd/SDL/include/SDL_config.h \
+  jni/../3rd/SDL/include/SDL_platform.h \
+  jni/../3rd/SDL/include/begin_code.h \
+  jni/../3rd/SDL/include/close_code.h \
+  jni/../3rd/SDL/include/SDL_config_android.h \
+  jni/../3rd/SDL/include/SDL_assert.h \
+  jni/../3rd/SDL/include/SDL_stdinc.h jni/../3rd/SDL/include/SDL_log.h \
+  jni/../3rd/SDL/include/SDL_joystick.h \
+  jni/../3rd/SDL/include/SDL_error.h jni/../3rd/SDL/include/SDL_guid.h \
+  jni/../3rd/SDL/include/SDL_mutex.h \
+  jni/../3rd/SDL/include/SDL_gamecontroller.h \
+  jni/../3rd/SDL/include/SDL_rwops.h jni/../3rd/SDL/include/SDL_sensor.h \
+  jni/../3rd/SDL/src/joystick/hidapi/SDL_hidapijoystick_c.h \
+  jni/../3rd/SDL/include/SDL_atomic.h jni/../3rd/SDL/include/SDL_hints.h \
+  jni/../3rd/SDL/include/SDL_hidapi.h \
+  jni/../3rd/SDL/src/joystick/hidapi/../usb_ids.h \
+  jni/../3rd/SDL/src/joystick/hidapi/../SDL_sysjoystick.h \
+  jni/../3rd/SDL/src/joystick/hidapi/../SDL_joystick_c.h
+jni/../3rd/SDL/src/joystick/hidapi/../../SDL_internal.h:
+jni/../3rd/SDL/src/joystick/hidapi/../../dynapi/SDL_dynapi.h:
+jni/../3rd/SDL/include/SDL_config.h:
+jni/../3rd/SDL/include/SDL_platform.h:
+jni/../3rd/SDL/include/begin_code.h:
+jni/../3rd/SDL/include/close_code.h:
+jni/../3rd/SDL/include/SDL_config_android.h:
+jni/../3rd/SDL/include/SDL_assert.h:
+jni/../3rd/SDL/include/SDL_stdinc.h:
+jni/../3rd/SDL/include/SDL_log.h:
+jni/../3rd/SDL/include/SDL_joystick.h:
+jni/../3rd/SDL/include/SDL_error.h:
+jni/../3rd/SDL/include/SDL_guid.h:
+jni/../3rd/SDL/include/SDL_mutex.h:
+jni/../3rd/SDL/include/SDL_gamecontroller.h:
+jni/../3rd/SDL/include/SDL_rwops.h:
+jni/../3rd/SDL/include/SDL_sensor.h:
+jni/../3rd/SDL/src/joystick/hidapi/SDL_hidapijoystick_c.h:
+jni/../3rd/SDL/include/SDL_atomic.h:
+jni/../3rd/SDL/include/SDL_hints.h:
+jni/../3rd/SDL/include/SDL_hidapi.h:
+jni/../3rd/SDL/src/joystick/hidapi/../usb_ids.h:
+jni/../3rd/SDL/src/joystick/hidapi/../SDL_sysjoystick.h:
+jni/../3rd/SDL/src/joystick/hidapi/../SDL_joystick_c.h:
