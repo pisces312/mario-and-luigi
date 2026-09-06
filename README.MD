@@ -2,6 +2,8 @@
 
 ![Mario & Luigi - Latest Build Screenshot](https://cdn.planetmagpie.net/mario.png)
 
+> **This fork also ships an Android APK port** — see [Android Port](#android-port) below.
+
 A faithful port of **Mario & Luigi** (1994) by Mike Wiering from DOS (Turbo Pascal + VGA Mode 13h) to modern Windows using **SDL2** and **Free Pascal**.
 
 The original game is a side-scrolling platformer for DOS featuring 6 worlds, two-player mode (Mario & Luigi), enemies, power-ups, pipes, and PC speaker sound effects. This port preserves all gameplay, visuals, and audio identically while replacing all DOS/hardware-specific code with SDL2 equivalents.  
@@ -41,6 +43,45 @@ Place `SDL2.dll` in the same directory as `MARIO.exe` and run.
 | `-Mtp` | Turbo Pascal mode (`Integer` = 16-bit, matches original overflow behavior) |
 | `-Sg`  | Allow `goto` statements (used in game loop)          |
 | `-Fu`  | Unit search path for SDL2-for-Pascal bindings        |
+
+### Android (APK)
+
+The Android port keeps the exact same game units; only the entry point is
+swapped to `MARIO_ANDROID.PAS` (`library` + `exports SDL_main`). Full
+toolchain requirements, exact compiler/linker flags and every known trap are
+documented in **[docs/BUILD.md](docs/BUILD.md)**.
+
+```powershell
+# 1) cross-compile SDL2 + libmain.so for arm64-v8a / x86_64
+powershell -ExecutionPolicy Bypass -File android/build-android.ps1
+# 2) assemble the APK
+cd android
+.\gradlew.bat assembleDebug --offline
+```
+
+Output: `android/app/build/outputs/apk/debug/app-debug.apk` (both ABIs packed).
+
+## Android Port
+
+The Android port runs the unmodified game logic (Turbo Pascal mode,
+`-Mtp -O-`) through the SDL2-for-Pascal stack, adapted for Android:
+
+| Layer | Implementation |
+|---|---|
+| Entry point | `MARIO_ANDROID.PAS` — `library` exporting `SDL_main`, loaded by SDLActivity via `nativeRunMain` (SDL2 ≥ 2.32); compiled with `ppcrossa64`/`ppcrossx64`, linked with NDK r21e GNU binutils |
+| SDL2 runtime | C library built with **NDK 29** (16KB page alignment), one `libSDL2.so` per ABI |
+| Touch input | `TouchPadView.java` overlay (8 keys: D-pad bottom-left, jump/run/fire bottom-right, pause/sound/quit top) injecting key events through `SDLActivity.onNativeKeyDown/Up`; three stuck-key guards included |
+| Saves / config | `SDL_AndroidGetInternalStoragePath` + `chdir(filesDir)`; `MARIO.CFG` / `MARIO.SAV` fixed names |
+| Joystick | accelerometer-as-joystick explicitly disabled (`SDL_SetHint`); `JOYSTICK.PAS` defers detection via `{$IFNDEF ANDROID}` |
+| ABIs | `arm64-v8a` + `x86_64` |
+
+Android project layout: `android/` — Gradle 9.4.1 (Tencent mirror) / AGP 9.2.0,
+Java glue from SDL2's `android-project`, prebuilt native libs in
+`app/src/main/jniLibs/<abi>/`, `build-android.ps1` one-shot build script.
+
+**Known traps** (detailed in `docs/BUILD.md` §5 and `docs/PLAN.md` §10):
+`{$S-}` is mandatory (FPC stack checking crashes on Android) and `-O-` is
+mandatory (`-O2` crashes entering Level 1 via `SYSTEM.IndexByte`).
 
 ## What Was Ported
 
@@ -129,7 +170,8 @@ The game features 6 worlds with a second harder "Turbo" loop after completion (1
 
 ```
 sdl2_port/
-  MARIO.PAS          Main program
+  MARIO.PAS          Main program (Windows)
+  MARIO_ANDROID.PAS  Android entry point (library, exports SDL_main)
   PLAY.PAS           Game loop
   VGA256.PAS         SDL2 graphics engine (core)
   KEYBOARD.PAS       SDL2 input handling
@@ -149,13 +191,22 @@ sdl2_port/
   WORLDS.PAS         World/level data management
   JOYSTICK.PAS       SDL2 joystick support
   CPU286.PAS         Stub (originally 286 detection)
-  build.bat          Build script
+  build.bat          Build script (Windows)
+  build-win32.ps1    Build script (Windows, explicit toolchain paths)
+  android/           Android project (Gradle, SDLActivity, TouchPadView)
+  docs/              Build & porting docs (BUILD.md, PLAN.md)
   icon.ico           Application icon
   mario.rc           Windows resource script
   sprites/           170 auto-generated sprite include files
   data/              Level data, fonts, palettes, backgrounds
   SDL2-for-Pascal/   SDL2 Pascal bindings (MPL/zlib licensed)
 ```
+
+## Documentation
+
+- **[docs/BUILD.md](docs/BUILD.md)** — Toolchain versions, paths, build commands and validation recipes for **both** the Windows and Android targets; sufficient to reproduce any build from scratch.
+- **[docs/PLAN.md](docs/PLAN.md)** — The porting plan, all decisions, and a log of every problem encountered with its solution (stack-check crash, optimizer crash, NDK29 linking dead-ends, etc.).
+- **[LEVELS.md](LEVELS.md)** — Complete level map and progression.
 
 ## Credits
 
