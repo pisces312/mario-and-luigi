@@ -6,9 +6,10 @@ package org.libsdl.app;
  *                           上/下同时是进管道键: 下=站管道口按住 (PLAYERS.PAS CheckPipeBelow),
  *                           上=顶入上方管道 (CheckPipeAbove), 菜单里也可上下选择
  *   ALT_LEFT          -> SDLK_LALT         跳
- *   CTRL_LEFT         -> SDLK_LCTRL        跑
+ *   CTRL_LEFT         -> SDLK_LCTRL        跑 (无独立键: 长按 ◀/▶ 自动注入, 见 updateAutoRun)
  *   SPACE             -> SDLK_SPACE        发射
  *   P / Q / ESCAPE    -> 暂停 / 声音 / 退出
+ * 布局: 左下十字方向键热区, 右下 JUMP|FIRE 一行椭圆, 顶排 暂停/声音/齿轮/退出
  * 防卡键三守卫:
  *   1. onDetachedFromWindow -> 释放所有按键
  *   2. 指针全部抬起但按键计数残留 -> 强制释放 (状态机安全网)
@@ -31,18 +32,17 @@ public class TouchPadView extends View {
     private static final int BTN_UP    = 2;
     private static final int BTN_DOWN  = 3;
     private static final int BTN_JUMP  = 4;
-    private static final int BTN_RUN   = 5;
-    private static final int BTN_FIRE  = 6;
-    private static final int BTN_PAUSE = 7;
-    private static final int BTN_SOUND = 8;
-    private static final int BTN_EXIT  = 9;
-    private static final int BTN_SETTINGS = 10; // 齿轮: 不注入键值, 打开手柄设置 (BT-INPUT.md §4.5)
-    private static final int BTN_COUNT = 11;
+    private static final int BTN_FIRE  = 5;
+    private static final int BTN_PAUSE = 6;
+    private static final int BTN_SOUND = 7;
+    private static final int BTN_EXIT  = 8;
+    private static final int BTN_SETTINGS = 9; // 齿轮: 不注入键值, 打开手柄设置 (BT-INPUT.md §4.5)
+    private static final int BTN_COUNT = 10;
 
     // BTN_LEFT..BTN_DOWN 是十字方向键, 命中判定用整个热区按方向分区, 不用各自的 rect
     private static final int DPAD_LAST = BTN_DOWN;
 
-    private static final String[] LABELS = {"\u25C0", "\u25B6", "\u25B2", "\u25BC", "JUMP", "RUN", "FIRE", "\u2016", "\u266A", "\u2715", "\u2699"};
+    private static final String[] LABELS = {"\u25C0", "\u25B6", "\u25B2", "\u25BC", "JUMP", "FIRE", "\u2016", "\u266A", "\u2715", "\u2699"};
 
     private final SparseArray<Integer> pointerToButton = new SparseArray<Integer>();
     private final int[] pressCount = new int[BTN_COUNT];
@@ -51,10 +51,24 @@ public class TouchPadView extends View {
     private final float[] pillRect = new float[4];
     private float padDeadSq;
     private float big, cell, small, pillH;
+    private MappingStore store;
+    private boolean runInjected;
+    private int runPendingDir = -1;
     private final Paint fillPaint = new Paint();
     private final Paint padPaint = new Paint();
     private final Paint divPaint = new Paint();
     private final Paint textPaint = new Paint();
+
+    // 自动跑: ◀/▶ 连续按住 AUTO_RUN_MS 后补发 CTRL_LEFT 并保持, 方向松开或换到 ↑/↓ 立即收回
+    private static final int AUTO_RUN_MS = 220;
+    private final Runnable injectRun = new Runnable() {
+        @Override
+        public void run() {
+            runPendingDir = -1;
+            runInjected = true;
+            try { SDLActivity.onNativeKeyDown(KeyEvent.KEYCODE_CTRL_LEFT); } catch (Throwable ignored) {}
+        }
+    };
 
     public TouchPadView(Context context) {
         super(context);
@@ -66,6 +80,7 @@ public class TouchPadView extends View {
         textPaint.setColor(0xEEFFFFFF);
         textPaint.setTextAlign(Paint.Align.CENTER);
         textPaint.setAntiAlias(true);
+        try { store = new MappingStore(context); } catch (Throwable ignored) {}
     }
 
     @Override
@@ -74,8 +89,8 @@ public class TouchPadView extends View {
         big = h * 0.15f;
         small = h * 0.075f;
         cell = big * 0.8f;
-        pillH = big * 0.8f;
-        float pillW = big * 2.1f;
+        pillH = big * 0.95f;
+        float pillW = big * 2.3f;
         divPaint.setStrokeWidth(big * 0.02f);
 
         // 左下: 十字方向键 (热区 3c 见方, 各自 rect 仅用于画圆)
@@ -92,7 +107,7 @@ public class TouchPadView extends View {
         float dead = cell * 0.34f;
         padDeadSq = dead * dead;
 
-        // 右下: 跳 | 发射 合体成一个横向椭圆 (左半跳, 右半发射)
+        // 右下: 跳 | 发射 合体成一个横向椭圆 (左半跳, 右半发射); 跑由长按方向键自动注入, 不占键位
         float px2 = w - m, px1 = px2 - pillW, py2 = h - m, py1 = py2 - pillH;
         btnRect[BTN_JUMP] = new float[]{px1, py1, px1 + pillW / 2f, py2};
         btnRect[BTN_FIRE] = new float[]{px1 + pillW / 2f, py1, px2, py2};
@@ -100,10 +115,6 @@ public class TouchPadView extends View {
         pillRect[1] = py1;
         pillRect[2] = px2;
         pillRect[3] = py2;
-
-        // 跑: 椭圆正上方
-        float rx = w - big - m;
-        btnRect[BTN_RUN] = new float[]{rx, py1 - m - big, rx + big, py1 - m};
 
         // 顶部: 暂停 / 声音 / 退出 / 设置(齿轮, 退出左侧)
         btnRect[BTN_PAUSE] = new float[]{m, m, m + small, m + small};
@@ -150,6 +161,45 @@ public class TouchPadView extends View {
     private void releaseAll() {
         for (int i = 0; i < BTN_COUNT; i++) forceRelease(i);
         pointerToButton.clear();
+        cancelRunSchedule();
+        releaseRun();
+    }
+
+    /** 每次触摸事件处理后同步自动跑状态 */
+    private void updateAutoRun() {
+        int dir = runningDirection();
+        if (dir < 0) {
+            cancelRunSchedule();
+            releaseRun();
+            return;
+        }
+        if (runInjected || dir == runPendingDir) return; // 已注入 / 同方向继续计时
+        cancelRunSchedule();
+        if (store != null && !store.getAutoRun()) return;
+        runPendingDir = dir;
+        postDelayed(injectRun, AUTO_RUN_MS);
+    }
+
+    /** 横向且未按住 ↑/↓ 才计跑: 下管道要求 XVel=0, 上下键不参与自动跑 */
+    private int runningDirection() {
+        int dir = -1;
+        for (int i = 0; i < pointerToButton.size(); i++) {
+            int b = pointerToButton.valueAt(i);
+            if (b == BTN_UP || b == BTN_DOWN) return -1;
+            if (b == BTN_LEFT || b == BTN_RIGHT) dir = b;
+        }
+        return dir;
+    }
+
+    private void cancelRunSchedule() {
+        removeCallbacks(injectRun);
+        runPendingDir = -1;
+    }
+
+    private void releaseRun() {
+        if (!runInjected) return;
+        runInjected = false;
+        try { SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_CTRL_LEFT); } catch (Throwable ignored) {}
     }
 
     private void sendDown(int btn) {
@@ -173,7 +223,6 @@ public class TouchPadView extends View {
             case BTN_UP:    return KeyEvent.KEYCODE_DPAD_UP;
             case BTN_DOWN:  return KeyEvent.KEYCODE_DPAD_DOWN;
             case BTN_JUMP:  return KeyEvent.KEYCODE_ALT_LEFT;
-            case BTN_RUN:   return KeyEvent.KEYCODE_CTRL_LEFT;
             case BTN_FIRE:  return KeyEvent.KEYCODE_SPACE;
             case BTN_PAUSE: return KeyEvent.KEYCODE_P;
             case BTN_SOUND: return KeyEvent.KEYCODE_Q;
@@ -246,6 +295,7 @@ public class TouchPadView extends View {
                     break;
             }
         }
+        updateAutoRun();
         return true;
     }
 
@@ -299,7 +349,6 @@ public class TouchPadView extends View {
     private float textSizeFor(int i) {
         if (i <= DPAD_LAST) return cell * 0.62f;
         if (i == BTN_JUMP || i == BTN_FIRE) return pillH * 0.42f;
-        if (i == BTN_RUN) return big * 0.42f;
         return small * 0.62f;
     }
 }

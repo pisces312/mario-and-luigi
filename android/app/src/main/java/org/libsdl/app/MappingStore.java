@@ -5,6 +5,7 @@ package org.libsdl.app;
  *   selected_device    String  选定手柄 InputDevice.getDescriptor(), 空串 = 任意手柄 (默认)
  *   mapping_json       String  映射表 JSON (§6), 缺省/损坏/为空 -> 默认映射
  *   auto_hide_touchpad boolean 手柄在线时自动隐藏触控层, 默认 true
+ *   touch_auto_run     boolean 触控层长按方向键自动跑, 默认 true
  *   config_version     int     每次写入自增, GamepadInputMapper 据此热重载
  * 读取失败一律回退默认, 不向游戏抛异常。
  */
@@ -28,6 +29,7 @@ public class MappingStore {
     private static final String K_DEVICE = "selected_device";
     private static final String K_MAPPING = "mapping_json";
     private static final String K_AUTOHIDE = "auto_hide_touchpad";
+    private static final String K_AUTORUN = "touch_auto_run";
     private static final String K_VERSION = "config_version";
 
     // 动作表 (BT-INPUT.md §5)
@@ -98,6 +100,17 @@ public class MappingStore {
     public void setAutoHide(boolean b) {
         SharedPreferences.Editor e = sp.edit();
         e.putBoolean(K_AUTOHIDE, b);
+        bump(e);
+        e.apply();
+    }
+
+    public boolean getAutoRun() {
+        return sp.getBoolean(K_AUTORUN, true);
+    }
+
+    public void setAutoRun(boolean b) {
+        SharedPreferences.Editor e = sp.edit();
+        e.putBoolean(K_AUTORUN, b);
         bump(e);
         e.apply();
     }
