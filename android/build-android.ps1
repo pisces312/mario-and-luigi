@@ -1,4 +1,4 @@
-# build-android.ps1 — Mario & Luigi Android 侧一键构建
+﻿# build-android.ps1 — Mario & Luigi Android 侧一键构建
 # 1) ndk-build 交叉编译 SDL2 → libSDL2.so (arm64-v8a + x86_64)
 # 2) ppcross* 交叉编译 libmain.so (FPC, 导出 SDL_main; 源码 MARIO_ANDROID.PAS)
 # 3) .so 复制到 app/src/main/jniLibs/<abi>/
@@ -14,12 +14,12 @@ $SDLPath   = "$Root\3rd\SDL"
 # --- 工具链（可用环境变量覆盖；默认本机 D:\dev 固定位置） ---
 $FPCAndroidHome = if ($env:FPC_ANDROID_HOME) { $env:FPC_ANDROID_HOME } else { 'D:\dev\FPC-android' }
 $NDK            = if ($env:ANDROID_NDK_HOME) { $env:ANDROID_NDK_HOME } else { 'D:\dev\android_sdk\ndk\21.4.7075529' }  # FPC 链接用 (GNU binutils, FPC 3.2.2 硬依赖)
-$NDKBuild  = if ($env:ANDROID_NDK29_HOME) { Join-Path $env:ANDROID_NDK29_HOME 'ndk-build.cmd' } else { 'D:\dev\android_sdk\ndk\29.0.14206865\ndk-build.cmd' }  # SDL2 C 库编译用 (NDK 29, 16KB 页对齐)
+$NDKBuild  = if ($env:ANDROID_NDK29_HOME) { Join-Path $env:ANDROID_NDK29_HOME 'ndk-build.cmd' } else { 'D:\dev\android_sdk\ndk\29.0.14206865\ndk-build.cmd' }  # SDL2 C 库编译用 (NDK 28+ 默认 16KB 页对齐); 改这里的 NDK 无需手动清理 obj, 下方 stamp 守卫自动全量重编.
 
 # 说明: FPC 3.2.2 无法使用 NDK 29 平台库 ——
 #   * NDK 29 的 libc.so 等为 LLVM bitcode 包装, 仅 ld.lld 可链接
 #   * FPC 生成的 GNU ld 链接脚本 (INSERT AFTER) 与 ld.lld 不兼容
-#   * GNU as/ld + r21e 平台库 仅用于 FPC 侧, SDL2 与游戏资源均在 NDK 29 编译
+#   * GNU as/ld + r21e 平台库 仅用于 FPC 侧, SDL2 与游戏资源在 NDK 29 编译
 $PPBin     = Join-Path $FPCAndroidHome 'bin\i386-win32'
 $RTLRoot   = Join-Path $FPCAndroidHome 'units'
 
@@ -55,6 +55,19 @@ $ABIs = @{
 # --- 1) SDL2 共享库 (双 ABI) ---
 Write-Host '=== [1/2] ndk-build libSDL2.so ==='
 if (-not (Test-Path "$SDLPath\Android.mk")) { throw "SDL 源码缺失: $SDLPath" }
+# ndk-build 的增量判定只比源文件 mtime, 不认工具链版本: obj 里留着旧产物时,
+# 换 NDK 后它只把旧 .so 复制进 jniLibs (md5 一字不变). 所以这里加 stamp 守卫:
+# obj/.ndk-stamp 记下上次用的 ndk-build 路径, 不一致就先删 obj 全量重编.
+# 另注: 本文件必须存成 UTF-8 with BOM, 否则 Windows PowerShell 5.1 会按 GBK 解码中文注释,
+#     连换行和后面的 ASCII 字符一起吞掉 -> 代码被并进注释, Parser 不报错但运行时变量为 null.
+$ObjDir = "$Root\obj"
+$Stamp  = "$ObjDir\.ndk-stamp"
+if ((Test-Path $Stamp) -and ((Get-Content $Stamp -Raw).Trim() -ne $NDKBuild)) {
+    Write-Host "  ndk-build changed -> clearing obj for full rebuild"
+    Remove-Item -Recurse -Force $ObjDir
+}
+New-Item -ItemType Directory -Force -Path $ObjDir | Out-Null
+Set-Content -Path $Stamp -Value $NDKBuild -NoNewline
 Push-Location $Root
 try {
     foreach ($abi in $ABIs.Keys) {
