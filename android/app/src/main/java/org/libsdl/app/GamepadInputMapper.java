@@ -7,6 +7,7 @@ package org.libsdl.app;
  * - 防卡键: 虚拟键引用计数 + token 跟踪; 设备断开 / onPause / 配置重载 -> releaseAll()
  * - 热插拔: InputDeviceListener -> PresenceListener 回调 (触控层显隐联动)
  * - 设备过滤: selected_device 非空时仅处理匹配设备; 键盘来源始终过映射表 (未绑定键直通)
+ * - 长按自动跑: 方向来源(键/轴/HAT)横向连续按住 AUTO_RUN_MS 后补发 RUN, 与触控层同规则
  */
 
 import android.content.Context;
@@ -45,8 +46,26 @@ public class GamepadInputMapper implements InputManager.InputDeviceListener {
 
     // 注入状态
     private final Map<Integer, Integer> virtualRef = new HashMap<Integer, Integer>(); // 虚拟键 -> 引用计数
-    private final Map<String, List<Integer>> activeTokens = new HashMap<String, List<Integer>>(); // 物理源 token -> 虚拟键
+    private final Map<String, Press> activeTokens = new HashMap<String, Press>(); // 物理源 token -> 动作与虚拟键
     private final Set<String> axisActive = new HashSet<String>(); // 处于激活态的轴 token
+
+    // 长按自动跑: 方向动作 -> 当前按住它的物理来源数 (d-pad 与摇杆/HAT 可能同时命中同一动作)
+    private final Map<String, Integer> dirHold = new HashMap<String, Integer>();
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private boolean runInjected;
+    private String runPendingDir;
+    private static final String RUN_TOKEN = "auto:run";
+
+    private final Runnable injectRun = new Runnable() {
+        @Override
+        public void run() {
+            runPendingDir = null;
+            runInjected = true;
+            Set<String> one = new HashSet<String>();
+            one.add("RUN");
+            pressToken(RUN_TOKEN, one);
+        }
+    };
 
     private String selected = "";   // 生效的 descriptor, "" = 任意手柄
     private boolean autoHide = true;
@@ -67,6 +86,17 @@ public class GamepadInputMapper implements InputManager.InputDeviceListener {
         }
     }
 
+    /** 一次按下: 命中的动作集合 + 实际注入的虚拟键, 释放时按同一份记账回退 */
+    private static class Press {
+        final List<String> actions;
+        final List<Integer> keys;
+
+        Press(List<String> actions, List<Integer> keys) {
+            this.actions = actions;
+            this.keys = keys;
+        }
+    }
+
     public GamepadInputMapper(Context ctx, PresenceListener l) {
         appCtx = ctx.getApplicationContext();
         store = new MappingStore(ctx);
@@ -74,7 +104,7 @@ public class GamepadInputMapper implements InputManager.InputDeviceListener {
         inputManager = (InputManager) appCtx.getSystemService(Context.INPUT_SERVICE);
         load(true);
         if (inputManager != null) {
-            inputManager.registerInputDeviceListener(this, new Handler(Looper.getMainLooper()));
+            inputManager.registerInputDeviceListener(this, handler);
         }
     }
 
@@ -219,19 +249,41 @@ public class GamepadInputMapper implements InputManager.InputDeviceListener {
 
     private void pressToken(String token, Set<String> actions) {
         if (activeTokens.containsKey(token)) return; // 防重复 down
+        List<String> as = new ArrayList<String>(actions);
         List<Integer> vks = new ArrayList<Integer>();
-        for (String a : actions) {
+        for (String a : as) {
             int vk = MappingStore.virtualKeyFor(a);
             if (vk != 0) vks.add(vk);
         }
-        activeTokens.put(token, vks);
+        activeTokens.put(token, new Press(as, vks));
         for (int vk : vks) pressVirtual(vk);
+        if (holdDirections(as, 1)) updateAutoRun();
     }
 
     private void releaseToken(String token) {
-        List<Integer> vks = activeTokens.remove(token);
-        if (vks == null) return;
-        for (int vk : vks) releaseVirtual(vk);
+        Press p = activeTokens.remove(token);
+        if (p == null) return;
+        for (int vk : p.keys) releaseVirtual(vk);
+        if (holdDirections(p.actions, -1)) updateAutoRun();
+    }
+
+    /** 方向动作的"按住来源数"增减; 返回本次是否涉及方向 (只有方向才需重算自动跑) */
+    private boolean holdDirections(List<String> actions, int delta) {
+        boolean hit = false;
+        for (String a : actions) {
+            if (!isDirection(a)) continue;
+            hit = true;
+            Integer n = dirHold.get(a);
+            int c = (n == null ? 0 : n) + delta;
+            if (c <= 0) dirHold.remove(a);
+            else dirHold.put(a, c);
+        }
+        return hit;
+    }
+
+    private static boolean isDirection(String action) {
+        return "LEFT".equals(action) || "RIGHT".equals(action)
+                || "UP".equals(action) || "DOWN".equals(action);
     }
 
     private void pressVirtual(int vk) {
@@ -263,10 +315,47 @@ public class GamepadInputMapper implements InputManager.InputDeviceListener {
         } catch (Throwable ignored) {}
     }
 
+    /** 长按自动跑状态同步, 规则与触控层 TouchPadView.updateAutoRun 一致 */
+    private void updateAutoRun() {
+        String dir = heldDirection();
+        if (dir == null) {
+            cancelRunSchedule();
+            releaseRun();
+            return;
+        }
+        if (runInjected || dir.equals(runPendingDir)) return; // 已注入 / 同方向继续计时
+        cancelRunSchedule();
+        if (!store.getAutoRun()) return;
+        runPendingDir = dir;
+        handler.postDelayed(injectRun, MappingStore.AUTO_RUN_MS);
+    }
+
+    /** 下管道要求 XVel=0: ↑/↓ 一旦参与就退出自动跑; 横向同时按住时取 RIGHT (恒定值, 避免来回换向重新计时) */
+    private String heldDirection() {
+        if (dirHold.containsKey("UP") || dirHold.containsKey("DOWN")) return null;
+        if (dirHold.containsKey("RIGHT")) return "RIGHT";
+        if (dirHold.containsKey("LEFT")) return "LEFT";
+        return null;
+    }
+
+    private void cancelRunSchedule() {
+        handler.removeCallbacks(injectRun);
+        runPendingDir = null;
+    }
+
+    private void releaseRun() {
+        if (!runInjected) return;
+        runInjected = false;
+        releaseToken(RUN_TOKEN);
+    }
+
     /** 防卡键: 释放全部已注入按键 (设备断开/onPause/配置重载/销毁时调用) */
     public void releaseAll() {
+        cancelRunSchedule();
+        releaseRun(); // 先走引用计数对称收回自动跑补发的 RUN
         activeTokens.clear();
         axisActive.clear();
+        dirHold.clear();
         for (Map.Entry<Integer, Integer> en : virtualRef.entrySet()) {
             if (en.getValue() != null && en.getValue() > 0) {
                 injectUp(en.getKey());

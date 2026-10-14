@@ -173,7 +173,7 @@ public class ControllerSettingsActivity extends Activity implements InputManager
         col.addView(ops);
 
         CheckBox runBox = new CheckBox(this);
-        runBox.setText("触控层长按 ◀/▶ 自动跑（约 220ms，替代 RUN 键）");
+        runBox.setText("长按 ◀/▶ 自动跑（约 220ms，替代 RUN 键；触屏与手柄/键盘通用）");
         runBox.setChecked(store.getAutoRun());
         runBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
@@ -225,6 +225,7 @@ public class ControllerSettingsActivity extends Activity implements InputManager
         help.setText(
                 "· 蓝牙手柄/键盘请先在系统“设置 > 蓝牙”中配对，再进游戏或本页。\n" +
                 "· 默认映射：十字键/左摇杆=移动，A=跳(菜单=确认)，B/Y/L1/R2=跑，X=发弹，START=暂停，SELECT=返回。\n" +
+                "· 手柄/键盘长按 ◀/▶（十字键或左摇杆）约 220ms 同样自动跑，松开或换 ↑/↓ 退出；B/Y/L1/R2 仍可直接跑。\n" +
                 "· 蓝牙键盘无需映射，方向/Alt/Ctrl/Space/Enter/Esc 直接可玩；也可用本页把键改到别的位置。\n" +
                 "· 一个物理键可绑定多个动作（如 A 同时是“跳跃”和“菜单确认”），互不冲突。\n" +
                 "· 触屏：左下十字热区四向滑动即换向，长按 ◀/▶ 约 220ms 自动跑（松开或换 ↑/↓ 退出），右下 B=发弹、A=跳（红白机左右序）；站管道口按住 ▼ 下管道。\n" +

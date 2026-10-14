@@ -5,7 +5,7 @@ package org.libsdl.app;
  *   selected_device    String  选定手柄 InputDevice.getDescriptor(), 空串 = 任意手柄 (默认)
  *   mapping_json       String  映射表 JSON (§6), 缺省/损坏/为空 -> 默认映射
  *   auto_hide_touchpad boolean 手柄在线时自动隐藏触控层, 默认 true
- *   touch_auto_run     boolean 触控层长按方向键自动跑, 默认 true
+ *   touch_auto_run     boolean 长按 ◀/▶ 自动跑, 触控层与手柄/键盘映射层共用, 默认 true
  *   tp_layout          String  触控层按钮位置 "cx,cy;..."(归一化 0..1, 7 组), 缺省 = 内置默认布局
  *   config_version     int     每次写入自增, GamepadInputMapper 据此热重载
  * 读取失败一律回退默认, 不向游戏抛异常。
@@ -38,6 +38,9 @@ public class MappingStore {
     public static final String[] ACTIONS = {
             "LEFT", "RIGHT", "UP", "DOWN", "JUMP", "RUN", "FIRE", "PAUSE", "SOUND", "EXIT", "CONFIRM"
     };
+
+    /** 长按横向方向键自动补发 RUN 的阈值, 触控层与映射层共用 */
+    public static final int AUTO_RUN_MS = 220;
 
     public static class Binding {
         public static final int TYPE_KEY = 0;

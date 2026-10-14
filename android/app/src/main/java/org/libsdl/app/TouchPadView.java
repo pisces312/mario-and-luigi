@@ -98,8 +98,8 @@ public class TouchPadView extends View {
         void onEditDone();
     }
 
-    // 自动跑: ◀/▶ 连续按住 AUTO_RUN_MS 后补发 CTRL_LEFT 并保持, 方向松开或换到 ↑/↓ 立即收回
-    private static final int AUTO_RUN_MS = 220;
+    // 自动跑: ◀/▶ 连续按住阈值后补发 CTRL_LEFT 并保持, 方向松开或换到 ↑/↓ 立即收回
+    // 阈值与手柄/键盘映射层共用 (GamepadInputMapper), 改一处两边同步
     private final Runnable injectRun = new Runnable() {
         @Override
         public void run() {
@@ -378,7 +378,7 @@ public class TouchPadView extends View {
         cancelRunSchedule();
         if (store != null && !store.getAutoRun()) return;
         runPendingDir = dir;
-        postDelayed(injectRun, AUTO_RUN_MS);
+        postDelayed(injectRun, MappingStore.AUTO_RUN_MS);
     }
 
     /** 横向且未按住 ↑/↓ 才计跑: 下管道要求 XVel=0, 上下键不参与自动跑 */
