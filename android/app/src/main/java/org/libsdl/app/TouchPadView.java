@@ -32,9 +32,10 @@ public class TouchPadView extends View {
     private static final int BTN_PAUSE = 5;
     private static final int BTN_SOUND = 6;
     private static final int BTN_EXIT  = 7;
-    private static final int BTN_COUNT = 8;
+    private static final int BTN_SETTINGS = 8; // 齿轮: 不注入键值, 打开手柄设置 (BT-INPUT.md §4.5)
+    private static final int BTN_COUNT = 9;
 
-    private static final String[] LABELS = {"\u25C0", "\u25B6", "\u25B2", "RUN", "FIRE", "\u2016", "\u266A", "\u2715"};
+    private static final String[] LABELS = {"\u25C0", "\u25B6", "\u25B2", "RUN", "FIRE", "\u2016", "\u266A", "\u2715", "\u2699"};
 
     private final SparseArray<Integer> pointerToButton = new SparseArray<Integer>();
     private final int[] pressCount = new int[BTN_COUNT];
@@ -67,10 +68,11 @@ public class TouchPadView extends View {
         btnRect[BTN_RUN]  = new float[]{rx, h - 2 * (big + m), rx + big, h - big - m};
         btnRect[BTN_FIRE] = new float[]{rx, h - big - m, rx + big, h - m};
 
-        // 顶部: 暂停 / 声音 / 退出
+        // 顶部: 暂停 / 声音 / 退出 / 设置(齿轮, 退出左侧)
         btnRect[BTN_PAUSE] = new float[]{m, m, m + sm, m + sm};
         btnRect[BTN_SOUND] = new float[]{m + sm + m, m, m + 2 * sm + m, m + sm};
         btnRect[BTN_EXIT]  = new float[]{w - sm - m, m, w - m, m + sm};
+        btnRect[BTN_SETTINGS] = new float[]{w - 2 * sm - 2 * m, m, w - sm - 2 * m, m + sm};
 
         textPaint.setTextSize(big * 0.55f);
         invalidate();
@@ -166,8 +168,12 @@ public class TouchPadView extends View {
                 case MotionEvent.ACTION_DOWN:
                 case MotionEvent.ACTION_POINTER_DOWN:
                     if (thisPointer && oldBtn < 0 && newBtn >= 0) {
-                        pointerToButton.put(id, newBtn);
-                        pressButton(newBtn);
+                        if (newBtn == BTN_SETTINGS) {
+                            openSettings(); // 齿轮不注入键值
+                        } else {
+                            pointerToButton.put(id, newBtn);
+                            pressButton(newBtn);
+                        }
                     }
                     break;
 
@@ -186,7 +192,7 @@ public class TouchPadView extends View {
                             releaseButton(oldBtn);
                             pointerToButton.remove(id);
                         }
-                        if (newBtn >= 0) {
+                        if (newBtn >= 0 && newBtn != BTN_SETTINGS) {
                             pointerToButton.put(id, newBtn);
                             pressButton(newBtn);
                         }
@@ -195,6 +201,20 @@ public class TouchPadView extends View {
             }
         }
         return true;
+    }
+
+    private void openSettings() {
+        try {
+            android.content.Intent i = new android.content.Intent(getContext(), ControllerSettingsActivity.class);
+            getContext().startActivity(i);
+        } catch (Throwable ignored) {}
+    }
+
+    @Override
+    public void setVisibility(int visibility) {
+        // 防卡键: 隐藏前释放全部按键 (BT-INPUT.md §4.5)
+        if (visibility != VISIBLE) releaseAll();
+        super.setVisibility(visibility);
     }
 
     @Override
@@ -213,7 +233,7 @@ public class TouchPadView extends View {
             float cy = (r[1] + r[3]) / 2f;
             float rad = (r[2] - r[0]) * 0.45f;
             canvas.drawCircle(cx, cy, rad, fillPaint);
-            float fs = (i == BTN_PAUSE || i == BTN_SOUND || i == BTN_EXIT)
+            float fs = (i == BTN_PAUSE || i == BTN_SOUND || i == BTN_EXIT || i == BTN_SETTINGS)
                     ? textPaint.getTextSize() * 0.9f : textPaint.getTextSize();
             Paint.FontMetrics fm = textPaint.getFontMetrics();
             canvas.drawText(LABELS[i], cx, cy - (fm.ascent + fm.descent) / 2f + fs * 0.02f, textPaint);

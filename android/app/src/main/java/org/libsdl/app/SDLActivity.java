@@ -33,6 +33,7 @@ import android.view.Display;
 import android.view.Gravity;
 import android.view.InputDevice;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.PointerIcon;
 import android.view.Surface;
 import android.view.View;
@@ -218,6 +219,10 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
     protected static int mLastCursorID;
     protected static SDLGenericMotionListener_API12 mMotionListener;
     protected static HIDDeviceManager mHIDDeviceManager;
+
+    // Mario & Luigi: gamepad/keyboard mapping layer (docs/BT-INPUT.md)
+    protected GamepadInputMapper mInputMapper;
+    protected TouchPadView mTouchPad;
 
     // This is what SDL runs in. It invokes SDL_main(), eventually
     protected static Thread mSDLThread;
@@ -416,7 +421,18 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
 
                 // Mario & Luigi: touch overlay (virtual keys -> onNativeKeyDown/Up)
         try {
-            mLayout.addView(new org.libsdl.app.TouchPadView(this));
+            mTouchPad = new org.libsdl.app.TouchPadView(this);
+            mLayout.addView(mTouchPad);
+
+            // Mario & Luigi: gamepad/keyboard mapping layer (docs/BT-INPUT.md §4.4)
+            mInputMapper = new org.libsdl.app.GamepadInputMapper(this,
+                    new org.libsdl.app.GamepadInputMapper.PresenceListener() {
+                        @Override
+                        public void onGamepadPresenceChanged(boolean online) {
+                            updateTouchPadVisibility();
+                        }
+                    });
+            updateTouchPadVisibility();
         } catch (Exception e) {
             android.util.Log.e("SDL", "TouchPadView mount failed: " + e);
         }
@@ -470,6 +486,11 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         if (!mHasMultiWindow) {
             pauseNativeThread();
         }
+
+        // Mario & Luigi: anti-stuck-key guard (docs/BT-INPUT.md §4.4)
+        if (mInputMapper != null) {
+            mInputMapper.releaseAll();
+        }
     }
 
     @Override
@@ -482,6 +503,12 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         }
         if (!mHasMultiWindow) {
             resumeNativeThread();
+        }
+
+        // Mario & Luigi: reload mapping if settings changed (docs/BT-INPUT.md §4.4)
+        if (mInputMapper != null) {
+            mInputMapper.reloadIfChanged();
+            updateTouchPadVisibility();
         }
     }
 
@@ -590,6 +617,12 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
     protected void onDestroy() {
         Log.v(TAG, "onDestroy()");
 
+        // Mario & Luigi: release mapping layer (docs/BT-INPUT.md §4.4)
+        if (mInputMapper != null) {
+            mInputMapper.destroy();
+            mInputMapper = null;
+        }
+
         if (mHIDDeviceManager != null) {
             HIDDeviceManager.release(mHIDDeviceManager);
             mHIDDeviceManager = null;
@@ -678,7 +711,29 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
             ) {
             return false;
         }
+
+        // Mario & Luigi: gamepad/keyboard mapping layer (docs/BT-INPUT.md §4.4)
+        if (mInputMapper != null && mInputMapper.handleKeyEvent(event)) {
+            return true;
+        }
         return super.dispatchKeyEvent(event);
+    }
+
+    // Mario & Luigi: joystick axis interception at dispatch level (docs/BT-INPUT.md §4.4;
+    // mSurface.setOnGenericMotionListener 已被 SDL 占用, 不可再 set)
+    @Override
+    public boolean dispatchGenericMotionEvent(MotionEvent event) {
+        if (mInputMapper != null && mInputMapper.handleMotionEvent(event)) {
+            return true;
+        }
+        return super.dispatchGenericMotionEvent(event);
+    }
+
+    // Mario & Luigi: show/hide touch overlay per gamepad presence (docs/BT-INPUT.md §4.5)
+    private void updateTouchPadVisibility() {
+        if (mTouchPad == null || mInputMapper == null) return;
+        boolean hide = mInputMapper.isAutoHideEnabled() && mInputMapper.isGamepadOnline();
+        mTouchPad.setVisibility(hide ? View.GONE : View.VISIBLE);
     }
 
     /* Transition to next state */

@@ -1,6 +1,7 @@
 # Mario & Luigi（DOS 1994）Windows SDL2 版 + Android 移植 —— 方案总记录
 
 > **构建参考**：工具链版本/路径/命令见 [`docs/BUILD.md`](BUILD.md)；问题与解决方案见 §8 风险登记、§9 决策记录、§10 移植记录。
+> **下一阶段**：蓝牙手柄/键盘支持方案见 [`docs/BT-INPUT.md`](BT-INPUT.md)（Java 输入映射层，零 Pascal 改动）。
 
 > 记录日期：2026-09-06
 > 状态：方案已定（路线 A），Windows 构建进行中
@@ -95,8 +96,10 @@
 ### 6.2 复现构建
 
 ```powershell
-# 一键脚本：build-win32.ps1（项目根）
-& 'D:\workspace\mario-android-port\fpc-full-tmp\bin\i386-win32\ppc386.exe' `
+# 推荐：一键脚本（项目根；脚本已用 $PSScriptRoot 锚定，移动后无需改路径）
+powershell -ExecutionPolicy Bypass -File .\build-win32.ps1
+# FPC 工具链位置可用环境变量 FPC_HOME 覆盖（默认 D:\dev\FPC），手动等价命令：
+& 'D:\dev\FPC\bin\i386-win32\ppc386.exe' `
   -Mtp -Ci- -Cr- -Sg -Si -O2 -FuSDL2-for-Pascal -Fu. -FE. mario.pas
 # 运行：cd mario-and-luigi && .\mario.exe（依赖同目录 SDL2.dll）
 ```
