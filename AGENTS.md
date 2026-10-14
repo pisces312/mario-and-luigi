@@ -57,9 +57,12 @@ git tag v1.1.0 && git push origin v1.1.0
 
 ```bash
 gh release create v1.1.0 "D:/Temp/mario-android-v1.1.0-arm64.apk" \
+  --repo pisces312/mario-and-luigi \
   --title "v1.1 — 蓝牙手柄与按键自定义 / Gamepad & key remapping" \
   --notes-file D:/Temp/release-v1.1.md
 ```
+
+`--repo` 必写：本仓是 fork，`gh` 会把 `upstream` 远端（pdromnt/mario-and-luigi）当默认仓库，报 "tag has not been pushed to pdromnt/…"。建完用 `gh release view v1.1.0 --repo pisces312/mario-and-luigi --json assets,name` 复核标题与资产。
 
 描述结构：中文段（新增 / 变更 / 已知限制 / 安装）+ English 段镜像；安装段固定提醒 **仅 arm64-v8a、Android 5.0+（minSdk 21）、设备已装 debug 版需先卸载**（release 与 debug 签名互斥，`adb install -r` 会 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`）。
 
