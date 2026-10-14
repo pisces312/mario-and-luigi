@@ -157,7 +157,7 @@ Get-FileHash app\src\main\jniLibs\arm64-v8a\libSDL2.so -Algorithm MD5
 7. 模拟器自动退出流程受窗口焦点抖动干扰，存档落盘建议真机验证
 8. `libmain.so` 的 `PT_LOAD p_align` 仍是 0x1000（4 KB），整包不满足 16 KB 页设备要求；`zipalign -P 16` 通过属假阴性，判据只认 `llvm-readelf -l`（详见 §3.3）
 9. `android/obj/` 不清就换 NDK → ndk-build 只 `Install` 旧产物、md5 不变却照样报完成，mtime 也会刷新；重编后必须比对 md5 + `p_align`（详见 §3.3 第 5 条）。脚本已用 `obj/.ndk-stamp` 自动检测并清理
-10. 含中文的 `.ps1` 必须存成 **UTF-8 with BOM**（`build-android.ps1` 已带）：无 BOM 时 Windows PowerShell 5.1 按 GBK 解码，中文字节会跟后续 ASCII（字母、`}`、`\`）配成双字节字符并吃掉换行，代码被并进注释——`Parser::ParseFile` 零错误，运行时变量却是 `$null`（2026-10-14 实测）。复核：`(Get-Content $f).Count` 与实际行数比对，变少即被吞行
+10. 脚本（`.bat` / `.ps1` / `.sh`）**一律纯英文**，注释与输出串都不写中文：无 BOM 的 UTF-8 `.ps1` 被 Windows PowerShell 5.1 按 GBK 解码时，中文字节会跟后续 ASCII（字母、`}`、`\`）配成双字节字符并吃掉换行，代码被并进注释——`Parser::ParseFile` 零错误，运行时变量却是 `$null`（2026-10-14 实测）；cmd 按 GBK 码页解析 `.bat` 同样坏语法。中文说明放 `docs/*.md` 与 commit 正文
 
 ## 6. 常用源码/文件位置
 | 文件 | 路径 |

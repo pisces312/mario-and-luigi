@@ -7,6 +7,7 @@
 ## 协作约定
 
 - 先出方案再动手；commit / push / 打 tag / 建 release 需逐次确认（用户一次性说"提交并推送"即视为该次已授权）。
+- **脚本一律纯英文**（`.bat` / `.cmd` / `.ps1` / `.sh` 等，含注释与 `echo` / `Write-Host` 输出）：中文注释在 Windows PowerShell 5.1（按 GBK 解码无 BOM 文件）与 cmd 码页下会吞字节、破坏语法，实测踩过（见下「已知坑」）。中文说明写进 `docs/*.md` 与 commit 正文，不写进脚本。
 - 只 `git add` 本次真正改动的路径，禁止 `git add -A` / `git add .`。改动跨类别时按语义拆 commit：`Android:` / `feat:` / `build:` / `docs:` / `release:`（正文中文）。
 - 验证分工：AI 职责止于「构建 + `adb install -r`」，游戏手感与真机手柄回归由用户完成；产物留在 `android/app/build/outputs/`，不拷进仓库。debug/release 同证书（见下），装 debug 包覆盖正式包不丢存档，可放心来回装。
 - 未真机实测过的功能，在文档与 release 描述里显式标注"待真机验证"，不写成已验证。
@@ -100,6 +101,6 @@ gh release create v1.1.0 "D:/Temp/mario-android-v1.1.0-arm64.apk" \
 
 - **Java 源码里的图标字符必须写单反斜杠 `"\u25C0"`**。写成 `"\\u25C0"` 能编译通过，但运行时得到 6 字符字面量 `\u25C0`，触控层按钮会显示转义文本而不是符号（javac 实测 `len=6`）。校验产物：读 APK 内 `classes.dex` 统计 `E2 97 80`（◀ 的 UTF-8 字节）是否出现。
 - **注释里也不能出现 `\u` 后跟 4 位十六进制**：javac 在词法分析前就做 Unicode 转义展开，注释写 `\u 转义` 会直接报「非法的 Unicode 逃逸」编译失败。要提转义写法就写「u 转义」。
-- **含中文的 `.ps1` 必须存成 UTF-8 with BOM**（`android/build-android.ps1` 已带）：无 BOM 时 Windows PowerShell 5.1 按 GBK 解码，中文字节会跟后面的 ASCII（字母、`}`、`\`）配成双字节字符、连换行一起吞掉——代码被并进注释，`Parser::ParseFile` 报零错误，运行时变量却是 `$null`（2026-10-14 实测，LF 行尾尤其容易吃行）。改完复核：`(Get-Content $f).Count` 要等于文件实际行数，且每个代码行在解码结果里能原样找到。
+- **脚本里不能出现中文**（规则见上「协作约定」）：无 BOM 的 UTF-8 `.ps1` 被 Windows PowerShell 5.1 按 GBK 解码时，中文字节会跟后续 ASCII（字母、`}`、`\`）配成双字节字符、连换行一起吞掉——代码被并进注释，`Parser::ParseFile` 报零错误，运行时变量却是 `$null`（2026-10-14 实测，LF 行尾尤其容易吃行）；cmd 按 GBK 码页解析 `.bat` 同样坏语法。碰到仍带中文的历史脚本就顺手英文化，改完复核 `(Get-Content $f).Count` 是否等于文件实际行数。
 - 触控层/映射层新增按键时，`setVisibility(GONE)` 与 `onDetachedFromWindow` 前必须 `releaseAll()`，否则 SDL 侧卡键（角色一直往一个方向跑）。
 - `SDLActivity.mSurface.setOnGenericMotionListener` 已被 SDL 占用，摇杆拦截只能在 Activity 的 `dispatchGenericMotionEvent` 做。
