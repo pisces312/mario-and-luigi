@@ -32,6 +32,11 @@ android {
     }
 
     buildTypes {
+        // debug 与 release 共用正式证书：两者可互相 adb install -r 覆盖安装，
+        // 不清 /data/data（filesDir 里的 MARIO.CFG/MARIO.SAV 存档保留）
+        debug {
+            signingConfig = signingConfigs.getByName("release")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
