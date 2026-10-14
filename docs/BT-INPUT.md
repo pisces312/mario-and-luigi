@@ -13,7 +13,7 @@
 1. **蓝牙手柄**（Xbox / PS / 8BitDo 等标准 Android 手柄）：开箱即玩的默认映射 + 自定义改键；
 2. **蓝牙键盘**：即插即用（现有链路已支持）+ 自定义改键；
 3. **设置界面**：设备列表与选择、按键映射编辑（按下捕获）、恢复默认、连接状态显示；
-4. 手柄连接时自动隐藏触控层，断开后恢复；
+4. 手柄连接时自动收起触控层的**游戏操作键**（方向/A/B），顶部工具键（暂停/声音/退出/齿轮）常驻，断开后恢复；
 5. **不改动 Pascal 游戏源码**（`MARIO_ANDROID.PAS` 及各单元零改动，避免重蹈 §10 崩溃坑）。
 
 非目标：手柄震动、模拟量精确控制（本游戏为纯数字输入）、手柄热键组合宏。
@@ -108,7 +108,7 @@ SharedPreferences 文件名 `controller_prefs`：
 |---|---|---|
 | `selected_device` | String | 选定手柄的 `InputDevice.getDescriptor()`；空串 = "任意手柄设备"（默认，插上即玩） |
 | `mapping_json` | String | 映射表 JSON（见 §6）；缺省 = 默认映射 |
-| `auto_hide_touchpad` | boolean | 手柄在线时自动隐藏触控层，默认 true |
+| `auto_hide_touchpad` | boolean | 手柄在线时自动收起触控层的游戏操作键（方向/A/B），工具键常驻，默认 true |
 | `touch_auto_run` | boolean | 长按 ◀/▶ 自动注入跑（CTRL_LEFT），**触控层与手柄/键盘映射层共用**，默认 true |
 | `tp_layout` | String | 触控层 7 组按钮中心点 `"cx,cy;…"`（归一化 0..1，顺序见 §4.5）；缺省 = 内置默认布局 |
 
@@ -171,7 +171,8 @@ SharedPreferences 文件名 `controller_prefs`：
 **联动**
 
 - 新增第 9 键 `BTN_SETTINGS`（齿轮 ⚙，顶部小键区）：点击不注入键值，回调 SDLActivity `startActivity(ControllerSettingsActivity)`；
-- 显隐：mapper 检测到选定手柄在线且开关开 → `setVisibility(GONE)`；离线/开关关 → `VISIBLE`；`GONE` 前必须 `releaseAll()`（视图已有此守卫）。
+- 收起：mapper 检测到选定手柄在线且开关开 → `setControlsVisible(false)`，**只收游戏操作键**（`GROUP_DPAD` / `GROUP_JUMP` / `GROUP_FIRE`），顶部工具键（暂停/声音/退出/齿轮）常驻——手柄能替代方向与 A/B，但齿轮是进设置页的入口，且 `SOUND` 默认映射里没有手柄绑定。整层不再 `GONE`（早期版本如此），否则手柄在线时只能退回桌面"手柄设置"图标。
+- 收起前 `setControlsVisible` 内先 `releaseAll()`（与 `setVisibility` 的 GONE 守卫同源）；绘制与命中判定共用 `buttonShown()`，不会留下"看不见但仍可点中"的键。编辑浮层始终显示全部组，否则手柄在线时无法调整方向键位置。
 
 **位置自定义（7 组可拖动）**
 
@@ -220,7 +221,7 @@ SharedPreferences 文件名 `controller_prefs`：
 
 ### 4.8 长按方向键自动跑（触控层与手柄/键盘共用）
 
-跑键（RUN = `CTRL_LEFT`）在触控层已取消，改由长按 ◀/▶ 补发。手柄在线时触控层被置 `GONE`（§4.5），而映射层原本只有"按下即注入、抬起即收回"、没有任何时间维度，所以手柄与蓝牙键盘上长按方向键不会起跑——原先手柄的跑只有 B/Y/L1/R2/右扳机（§5）。
+跑键（RUN = `CTRL_LEFT`）在触控层已取消，改由长按 ◀/▶ 补发。手柄在线时触控层整层被置 `GONE`（改造前的 §4.5），而映射层原本只有"按下即注入、抬起即收回"、没有任何时间维度，所以手柄与蓝牙键盘上长按方向键不会起跑——原先手柄的跑只有 B/Y/L1/R2/右扳机（§5）。
 
 **改法（仅 Java，不需重编 native）**：在 `GamepadInputMapper` 里补一套与触控层同规则的状态机。
 
@@ -357,7 +358,7 @@ SharedPreferences 文件名 `controller_prefs`：
 
 - [ ] 手柄配对（系统设置）→ 进游戏：十字键/左摇杆移动、A 跳、B 跑、X 发弹、START 暂停、SELECT 返回，**全程菜单可纯手柄操作**（A 确认）
 - [ ] 改键：跳改到 R1，保存后生效，重启游戏仍在
-- [ ] 手柄连接后触控层自动隐藏；游戏中拔电/断连 → 触控恢复且**无卡键**（角色不跑偏）
+- [x] 手柄连接后只收起方向键/A/B 三组，顶部 ‖ ♪  ⚙ 仍可见可点（点 ⚙ 能进设置页）；游戏中拔电/断连 → 操作键恢复且**无卡键**（角色不跑偏）——2026-10-14 用户真机反馈"真机测试正常"
 - [x] 手柄长按 ◀/▶ 自动跑（§4.8，2026-10-14 用户真机 BT 手柄实测：长按方向键约 220ms 后进入跑速，功能生效）
 - [ ] BT 键盘：方向/Alt/Ctrl/Space/Enter/Esc 直接可玩；改键（跳→Z）生效
 - [ ] 双设备：键盘与手柄同时在线互不干扰

@@ -164,7 +164,7 @@ powershell -ExecutionPolicy Bypass -File .\build-win32.ps1
   - binutils 目录需在 PATH 中（或 -FD + PATH），前缀 `-XPaarch64-linux-android-`
   - NDK 配套：**r21e**（21.4.7075529）的 `aarch64-linux-android-4.9` GCC binutils（FPC 3.2.2 时代标准；r22+ 的 4.9 binutils 也可用）
 - **NDK 29 升级（2026-09-06）**：
-  - [x] SDL2 改用 **NDK 29**（29.0.14206865）ndk-build 编译 → **16KB 页对齐确认**（LOAD 对齐 0x4000，兼容 Android 15+/16KB 设备）；模拟器回归通过
+  - [x] SDL2 改用 **NDK 29**（29.0.14206865）ndk-build 编译 → LOAD 对齐 0x4000；模拟器回归通过。**当日实际未生效**（ndk-build 增量把 `obj/` 里的 r27d 产物复制进 `jniLibs`，`p_align` 仍是 0x1000，见 §10.10），2026-10-14 清空 `obj/` 重编后才真正成立；`libmain.so` 仍 0x1000，整包不满足 16 KB 页设备
   - [ ] **FPC 3.2.2 无法用 NDK 29 平台库**（已探明，硬限制）：NDK 29 的 `libc.so` 等为 **LLVM bitcode 包装**，GNU ld 无法链接；而 FPC 生成的 GNU ld 链接脚本（`INSERT AFTER`）**ld.lld 不支持**。结论：FPC 侧保持 GNU as/ld + r21e 平台库；SDL2 侧 NDK 29。运行时 ABI 兼容。尝试记录：`-Aclang`（FPC 3.2.2 仅 Darwin 目标支持）、ld.lld wrapper（`INSERT` 不支持 + `.res` 需 `-T` 显式脚本）、NDK29 平台库 + GNU ld（bitcode 解析失败）
 - 本机新增：NDK r21e（21.4.7075529）+ r22（22.1.7171670）经 sdkmanager 安装；7-Zip 未装成（winget 装后找不到，不影响）
 
@@ -216,7 +216,8 @@ powershell -ExecutionPolicy Bypass -File .\build-win32.ps1
 - **按钮位置可自定义**：7 组（十字方向键算一组）各自可拖拽，只存归一化中心点 `tp_layout="cx,cy;…"`（`MappingStore`），尺寸仍由屏幕推导 → 只调位置不调大小、旋转/换分辨率自适应；绘制与命中判定共用同一份 rect。入口在设置页「编辑触控按钮位置」，以全屏浮层承载编辑模式的 `TouchPadView`（不注入 `P`——`PLAY.PAS` 暂停是忙等，SDL 侧抬起事件送不进去会卡死），松手即落盘，顶部「完成」退出，「恢复默认布局」撤销。游戏 `onResume` → `reloadLayout()` 立即生效。详见 `docs/BT-INPUT.md` §4.5。
 - 经 `SDLActivity.onNativeKeyDown/Up` 注入原生键事件；防卡键三守卫（onDetachedFromWindow 释放、ACTION_UP 兜底释放、滑出按钮视为释放——方向区内滑动换向/滑进中心死区即走这条，自动跑的 Ctrl 也经 `releaseAll()` 一并收回）。
 - 挂载点：SDLActivity.onCreate `setContentView(mLayout)` 之后（L419）。
-- 验证：触摸 JUMP 按住 600ms 马里奥起跳（像素 y:834→487）；触摸 EXIT 回主菜单有效。2026-10-14 pixel6 模拟器另测：`input keyevent 20` 与点按拖到新位置的 ▼ 均使菜单 START→OPTIONS（自定义布局下命中与注入链路正常）；拖拽→落盘→返回游戏重绘→恢复默认 全流程通过。**A/B 两圆手感、触屏长按自动跑、真机手指拖拽仍待真机验证**（2400×1080 等 6 种横屏分辨率已用脚本核对无越界/无重叠，且默认布局与改造前逐像素一致）。**手柄长按方向键自动跑已于 2026-10-14 真机 BT 手柄实测生效**。
+- **手柄在线时的收起策略**：只收方向键与 A/B 三组（`setControlsVisible(false)`，收起前 `releaseAll()` 防卡键），顶部 暂停/声音/退出/齿轮 常驻——齿轮是进设置页的入口，且 `SOUND` 默认映射里没有手柄绑定；绘制与命中判定共用同一 `buttonShown()` 判据。见 `docs/BT-INPUT.md` §4.5。
+- 验证：触摸 JUMP 按住 600ms 马里奥起跳（像素 y:834→487）；触摸 EXIT 回主菜单有效。2026-10-14 pixel6 模拟器另测：`input keyevent 20` 与点按拖到新位置的 ▼ 均使菜单 START→OPTIONS（自定义布局下命中与注入链路正常）；拖拽→落盘→返回游戏重绘→恢复默认 全流程通过。**A/B 两圆手感、触屏长按自动跑、真机手指拖拽仍待真机验证**（2400×1080 等 6 种横屏分辨率已用脚本核对无越界/无重叠，且默认布局与改造前逐像素一致）。**手柄长按方向键自动跑已于 2026-10-14 真机 BT 手柄实测生效**；同真机同轮次（含 §10.3 收起策略的 debug 包）用户反馈"真机测试正常"，手柄在线时只收三组操作键、工具键常驻一并确认。
 
 ### 10.4 图标
 
@@ -225,7 +226,7 @@ powershell -ExecutionPolicy Bypass -File .\build-win32.ps1
 ### 10.5 双 ABI 与工具链（已验证）
 
 - FPC 3.2.2 交叉（`D:\dev\FPC-android`）：ppcrossa64/ppcrossx64，-Tandroid -Mtp -O-，GNU 4.9 binutils（NDK r21e）链接。
-- SDL2 C 库：NDK 29 编译（16KB 页对齐，libSDL2.so arm64 1,460,976B / x86_64 1,618,576B）。
+- SDL2 C 库：NDK 29 编译（arm64 `libSDL2.so` 1,447,224B / x86_64 1,611,568B，`p_align=0x4000`）；`libmain.so` 仍走 r21e GNU ld，`p_align=0x1000`。产物体检见 `docs/BUILD.md` §3.3。
 - 产物：libmain.so arm64 345,064B / x86_64 353,432B；APK 双 ABI 打包，arm64 导出 SDL_main 符号已验证（llvm-nm）。
 - **死路**：NDK29 平台库（LLVM bitcode，GNU ld 无法解析）；ld.lld（不解析 FPC 链接脚本）。
 
@@ -247,7 +248,17 @@ powershell -ExecutionPolicy Bypass -File .\build-win32.ps1
 
 ### 10.9 手柄/键盘长按方向键自动跑（补齐触控层专属功能）
 
-- 缺口成因：自动跑的状态机原本只存在于 `TouchPadView`；手柄在线时触控层被 `setVisibility(GONE)`（顺带 `releaseAll()` 把待发的定时器一起清掉），而 `GamepadInputMapper` 只做"按下即注入、抬起即收回"、没有任何时间维度——所以手柄与蓝牙键盘上长按方向键不会起跑。
+- 缺口成因：自动跑的状态机原本只存在于 `TouchPadView`；手柄在线时触控层整层被 `setVisibility(GONE)`（改造前，顺带 `releaseAll()` 把待发的定时器一起清掉），而 `GamepadInputMapper` 只做"按下即注入、抬起即收回"、没有任何时间维度——所以手柄与蓝牙键盘上长按方向键不会起跑。
 - 修法（仅 Java）：映射层补一套同规则状态机。方向来源按"动作 → 活跃来源数"计数（十字键、左摇杆、HAT 可能对同一方向同时上报，不能按单来源松手就退出），横向连续按住阈值后经引用计数注入 RUN，↑/↓ 一旦参与立即收回，`releaseAll()` 连带清定时器与计数。细节与依据见 `docs/BT-INPUT.md` §4.8。
 - 与实体跑键共存：注入走 `virtualRef` 引用计数，按住 B 跑时长按方向键结束不会提前把 Ctrl 松开。
 - 验证：2026-10-14 用户真机 BT 手柄实测——长按方向键可进入跑速。模拟器侧确认 `input keyevent --down/--up` 可以模拟"按住"（API 34），但本次未取到走/跑速度对照数据。
+
+### 10.10 启动时 Android 兼容性弹窗（`.so` 头部）
+
+- 现象：真机（Honor BKQ-AN80，4 KB 页）装完 debug 包后启动弹了一次兼容性对话框，内容与 `.so` 头部有关；游戏本身运行正常，`force-stop` 重开未复现，logcat 无任何 linker 报错。
+- 定性：非本次改动引入。v1.1.0 / v1.2.0 / 当日 debug 三个包的 `lib/arm64-v8a/*.so` md5 全同，`jniLibs` mtime 停在 2026-09-06，弹窗那轮只跑了 `assembleDebug`，未重编 native。
+- 唯一实测到的真实缺陷：四个 `.so` 的 `PT_LOAD p_align` 全是 0x1000，不满足 16 KB 页设备要求；`libmain.so` 的 `.note.android.ident` 仍挂 r21e、min/target SDK 为 0。取证数据、判据（含 `zipalign -P 16` 的假阴性）与待办修法记在 `docs/BUILD.md` §3.3。
+- 处置（2026-10-14 同日）：清 `android/obj/` 后用 NDK 29 重编，`libSDL2.so` 双 ABI 的 `p_align` 升到 0x4000、note 变 r29；`libmain.so` 因 FPC 只能走 r21e GNU ld 仍是 0x1000（md5 与重编前完全相同），所以**整包仍不满足 16 KB 页设备**。真机回归：`nativeloader` 对两个库都报 `ok`，LEVEL 1 渲染与触控层正常、无 `Fatal signal`。
+- 顺带挖出的旧错记：`ndk-build` 的增量判定不看工具链版本，`obj/` 不清就换 NDK 只会把旧 `.so` 复制进 `jniLibs`（md5 不变、mtime 刷新、照样报完成）。2026-09-06 那次就是这样——`obj29/` 里 r29 的 16 KB 产物早就编出来了，装进 `jniLibs` 的却是 `obj/` 的 r27d 产物，文档因此一直记成"NDK 29 编译、16KB 页对齐"。
+- 收口：`android/build-android.ps1` 增加 stamp 守卫，把 `ndk-build.cmd` 路径写进 `obj/.ndk-stamp`，与上次不一致就先删 `obj` 再编（stamp 缺失或一致时不动增量缓存）。实测见 `docs/BUILD.md` §3.3 第 5 条。
+- 未定项：弹窗原文尚未拿到，不足以在"16 KB 对齐"与"note 版本过旧"之间定因；`libmain.so` 能否靠 `-z max-page-size=16384` 跟上（r21e 的 binutils 是否认这个选项）待验证。

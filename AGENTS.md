@@ -11,6 +11,39 @@
 - 验证分工：AI 职责止于「构建 + `adb install -r`」，游戏手感与真机手柄回归由用户完成；产物留在 `android/app/build/outputs/`，不拷进仓库。debug/release 同证书（见下），装 debug 包覆盖正式包不丢存档，可放心来回装。
 - 未真机实测过的功能，在文档与 release 描述里显式标注"待真机验证"，不写成已验证。
 
+## Android 构建现状（工具链 / 产物 / 签名）
+
+| 环节 | 工具链 | 产物 |
+|---|---|---|
+| SDL2 C 库 | NDK 29 `D:\dev\android_sdk\ndk\29.0.14206865`，`ndk-build` + `android/jni/Android.mk`、`Application.mk`（`APP_PLATFORM := android-21`） | `libSDL2.so`：arm64-v8a 1,447,224 B / x86_64 1,611,568 B；`PT_LOAD p_align=0x4000`（16 KB 对齐），`.note.android.ident` 记 r29 |
+| 游戏本体 | FPC 3.2.2 交叉 `D:\dev\FPC-android`（`ppcrossa64` / `ppcrossx64`，`-Tandroid -Mtp -O- -dANDROID`）+ NDK r21e `D:\dev\android_sdk\ndk\21.4.7075529` 的 GNU as/ld 与 android-21 平台库 | `libmain.so`：arm64-v8a 345,064 B / x86_64 353,432 B；`p_align=0x1000`，note 记 r21e |
+| APK | Gradle 9.4.1（wrapper，腾讯镜像）+ AGP 9.2.0，JDK 17（`D:\dev\AndroidStudio\jbr`），compileSdk/targetSdk 36、minSdk 21，`GRADLE_USER_HOME=D:\dev\.gradle` | debug：`arm64-v8a` + `x86_64`；release：仅 `arm64-v8a`、不混淆 |
+
+命令（在 `android/` 下）：
+
+```powershell
+# native：仅在改了 *.PAS 或 SDL2 时需要；只动 Java/Gradle/Manifest 不必重跑
+# 脚本自带 obj/.ndk-stamp 守卫：ndk-build 路径变了会自动清空 obj 全量重编，无需手动清理
+powershell -ExecutionPolicy Bypass -File .\build-android.ps1
+# APK（工具链路径可用 FPC_ANDROID_HOME / ANDROID_NDK_HOME / ANDROID_NDK29_HOME 覆盖）
+.\gradlew.bat assembleDebug --offline      # 或 assembleRelease
+# 产物：app\build\outputs\apk\{debug,release}\app-*.apk
+```
+
+签名（`app/build.gradle.kts` 的 `signingConfigs.release`）：
+
+- 只从环境变量 `KEY_STORE` / `KEY_STORE_PASSWORD` / `KEY_ALIAS` / `KEY_PASSWORD` 读取，缺任一项直接抛 `GradleException`；**禁止硬编码密码或回退默认值**。副作用：`assembleDebug` 同样要求这四项就位（证书在配置期就被读，缺了连 debug 都构建不了）。
+- **debug 与 release 共用正式证书**（`buildTypes.debug.signingConfig = signingConfigs.release`），因此两者可互相 `adb install -r` 覆盖安装，`/data/data/org.libsdl.mario`（filesDir 里的 `MARIO.CFG`/`MARIO.SAV`）不动＝不丢档。
+- 例外：2026-10-14 之前用默认 debug keystore 签的历史包仍与正式证书互斥，装新包前需**卸载一次**（那一次会清档，可先用 `run-as` 导出存档再灌回，存档在 debug 侧可读）。
+
+判据与限制：
+
+- **ndk-build 的增量判定不看工具链版本**：`obj/` 里留着旧产物时它只打印 `Install : libSDL2.so => …` 把旧 `.so` 原样复制进 `jniLibs`——md5 一字不变，mtime 却刷新，脚本照样报「完成」。`build-android.ps1` 用 `obj/.ndk-stamp` 记住 obj 属于哪个 `ndk-build.cmd`，路径不一致就先删 `obj` 全量重编（正常增量场景不受影响；obj 里还没有 stamp 文件的首次运行不触发清理）。复核仍只认两条：`jniLibs/<abi>/*.so` 的 md5 是否真的变了 + `llvm-readelf -l` 的 `p_align`；`zipalign -c -P 16` 通过属**假阴性**（只查 APK 内 zip 偏移，不查 ELF 对齐）。
+- **整包尚不满足 16 KB 页设备**：`libmain.so` 仍是 4 KB 对齐（FPC 只能走 r21e GNU ld），文档与 release 描述**不得写"已支持 16 KB 页"**。4 KB 页设备不受影响；16 KB 对齐的库在 4 KB 设备上照常可用，反之 linker 会以 "misaligned ELF segment" 拒绝。
+- **死路，勿重试**：NDK 29 平台库是 LLVM bitcode 包装，GNU ld 无法解析；ld.lld 不解析 FPC 生成的链接脚本（`INSERT AFTER`）——所以 FPC 侧只能留在 r21e。
+- Git Bash 里 `cmd.exe /c "gradlew.bat …"` 会静默不执行，必须写 `./gradlew.bat`。
+- 路径清单、体检脚本与 ELF 取证细节：`docs/BUILD.md` §1.2 / §3.3 / §4。
+
 ## Android 发版流程（按顺序）
 
 ### 1. 递增版本（两处必须同步）
@@ -20,21 +53,14 @@
 
 规则：新增功能 → `versionName` 进 minor（`1.0` → `1.1`）；仅修 bug → patch。`versionCode` 每次发版 +1。Git tag 用 `v<versionName>`（上游用 `20260219-2` 这类日期式 tag，不要混用）。
 
-### 2. 构建正式版（签名走环境变量）
+### 2. 构建正式版
 
 ```powershell
-# 前置：KEY_STORE / KEY_STORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD 四个环境变量已设置
+# 前置：四个签名环境变量已设置（见上节）
 cd android
 ./gradlew.bat assembleRelease --offline
 # 产物：android/app/build/outputs/apk/release/app-release.apk
 ```
-
-- 签名配置只从环境变量读取，缺任一项 Gradle 直接抛异常；**禁止硬编码密码或回退默认值**。
-- **debug 与 release 共用正式证书**（`buildTypes.debug.signingConfig = signingConfigs.release`），因此两者可互相 `adb install -r` 覆盖安装，`/data/data/org.libsdl.mario`（filesDir 里的 `MARIO.CFG`/`MARIO.SAV`）不动＝不丢档。副作用：`assembleDebug` 同样要求四个签名环境变量就位（证书在配置期就被读，缺了连 debug 都构建不了）。
-- 例外：2026-10-14 之前用默认 debug keystore 签的历史包仍与正式证书互斥，装新包前需**卸载一次**（那一次会清档，可先用 `run-as` 导出存档再灌回，存档在 debug 侧可读）。
-- `--offline` 可用（`GRADLE_USER_HOME=D:\dev\.gradle` 有腾讯镜像缓存）；release 变体固定**仅 arm64-v8a、不混淆**。
-- Git Bash 里 `cmd.exe /c "gradlew.bat …"` 会静默不执行，必须写 `./gradlew.bat`。
-- 仅改 Java/Gradle/Manifest 时不需要重跑 native；改了 `*.PAS` 或 SDL2 才先跑 `powershell -ExecutionPolicy Bypass -File ./build-android.ps1`（工具链路径可用 `FPC_ANDROID_HOME` / `ANDROID_NDK_HOME` / `ANDROID_NDK29_HOME` 覆盖）。
 
 ### 3. 产物校验（判据，不要凭"BUILD SUCCESSFUL"收尾）
 
@@ -72,7 +98,8 @@ gh release create v1.1.0 "D:/Temp/mario-android-v1.1.0-arm64.apk" \
 
 ## 已知坑（实测过）
 
-- **Java 源码里的图标字符必须写单反斜杠 `"\u25C0"`**。写成 `"\\u25C0"` 能编译通过，但运行时得到 6 字符字面量 `\u25C0`，触控层按钮会显示转义文本而不是符号（2026-10-14 javac 实测 `len=6`）。校验产物：读 APK 内 `classes.dex` 统计 `E2 97 80`（◀ 的 UTF-8 字节）是否出现。
-- **注释里也不能出现 `\u` 后跟 4 位十六进制**：javac 在词法分析前就做 Unicode 转义展开，注释写 `\u 转义` 会直接报「非法的 Unicode 逃逸」编译失败（2026-10-14 实测）。要提转义写法就写「u 转义」。
+- **Java 源码里的图标字符必须写单反斜杠 `"\u25C0"`**。写成 `"\\u25C0"` 能编译通过，但运行时得到 6 字符字面量 `\u25C0`，触控层按钮会显示转义文本而不是符号（javac 实测 `len=6`）。校验产物：读 APK 内 `classes.dex` 统计 `E2 97 80`（◀ 的 UTF-8 字节）是否出现。
+- **注释里也不能出现 `\u` 后跟 4 位十六进制**：javac 在词法分析前就做 Unicode 转义展开，注释写 `\u 转义` 会直接报「非法的 Unicode 逃逸」编译失败。要提转义写法就写「u 转义」。
+- **含中文的 `.ps1` 必须存成 UTF-8 with BOM**（`android/build-android.ps1` 已带）：无 BOM 时 Windows PowerShell 5.1 按 GBK 解码，中文字节会跟后面的 ASCII（字母、`}`、`\`）配成双字节字符、连换行一起吞掉——代码被并进注释，`Parser::ParseFile` 报零错误，运行时变量却是 `$null`（2026-10-14 实测，LF 行尾尤其容易吃行）。改完复核：`(Get-Content $f).Count` 要等于文件实际行数，且每个代码行在解码结果里能原样找到。
 - 触控层/映射层新增按键时，`setVisibility(GONE)` 与 `onDetachedFromWindow` 前必须 `releaseAll()`，否则 SDL 侧卡键（角色一直往一个方向跑）。
 - `SDLActivity.mSurface.setOnGenericMotionListener` 已被 SDL 占用，摇杆拦截只能在 Activity 的 `dispatchGenericMotionEvent` 做。
