@@ -2,7 +2,9 @@ package org.libsdl.app;
 
 /* Mario & Luigi 触摸控制层
  * 通过 SDLActivity.onNativeKeyDown/Up 注入键盘事件 (SDL 官方 Android keycode 映射):
- *   DPAD_LEFT/RIGHT   -> SDLK_LEFT/RIGHT   移动
+ *   DPAD_LEFT/RIGHT/UP/DOWN -> SDLK_LEFT/RIGHT/UP/DOWN  移动
+ *                           上/下同时是进管道键: 下=站管道口按住 (PLAYERS.PAS CheckPipeBelow),
+ *                           上=顶入上方管道 (CheckPipeAbove), 菜单里也可上下选择
  *   ALT_LEFT          -> SDLK_LALT         跳
  *   CTRL_LEFT         -> SDLK_LCTRL        跑
  *   SPACE             -> SDLK_SPACE        发射
@@ -26,27 +28,37 @@ public class TouchPadView extends View {
 
     private static final int BTN_LEFT  = 0;
     private static final int BTN_RIGHT = 1;
-    private static final int BTN_JUMP  = 2;
-    private static final int BTN_RUN   = 3;
-    private static final int BTN_FIRE  = 4;
-    private static final int BTN_PAUSE = 5;
-    private static final int BTN_SOUND = 6;
-    private static final int BTN_EXIT  = 7;
-    private static final int BTN_SETTINGS = 8; // 齿轮: 不注入键值, 打开手柄设置 (BT-INPUT.md §4.5)
-    private static final int BTN_COUNT = 9;
+    private static final int BTN_UP    = 2;
+    private static final int BTN_DOWN  = 3;
+    private static final int BTN_JUMP  = 4;
+    private static final int BTN_RUN   = 5;
+    private static final int BTN_FIRE  = 6;
+    private static final int BTN_PAUSE = 7;
+    private static final int BTN_SOUND = 8;
+    private static final int BTN_EXIT  = 9;
+    private static final int BTN_SETTINGS = 10; // 齿轮: 不注入键值, 打开手柄设置 (BT-INPUT.md §4.5)
+    private static final int BTN_COUNT = 11;
 
-    private static final String[] LABELS = {"\u25C0", "\u25B6", "\u25B2", "RUN", "FIRE", "\u2016", "\u266A", "\u2715", "\u2699"};
+    // BTN_LEFT..BTN_DOWN 是十字方向键, 命中判定用整个热区按方向分区, 不用各自的 rect
+    private static final int DPAD_LAST = BTN_DOWN;
+
+    private static final String[] LABELS = {"\u25C0", "\u25B6", "\u25B2", "\u25BC", "JUMP", "RUN", "FIRE", "\u2016", "\u266A", "\u2715", "\u2699"};
 
     private final SparseArray<Integer> pointerToButton = new SparseArray<Integer>();
     private final int[] pressCount = new int[BTN_COUNT];
     private final float[][] btnRect = new float[BTN_COUNT][4];
+    private final float[] padRect = new float[4];
+    private float padDeadSq;
     private final Paint fillPaint = new Paint();
+    private final Paint padPaint = new Paint();
     private final Paint textPaint = new Paint();
 
     public TouchPadView(Context context) {
         super(context);
         fillPaint.setColor(0x88222222);
         fillPaint.setStyle(Paint.Style.FILL);
+        padPaint.setColor(0x33222222);
+        padPaint.setStyle(Paint.Style.FILL);
         textPaint.setColor(0xEEFFFFFF);
         textPaint.setTextAlign(Paint.Align.CENTER);
         textPaint.setAntiAlias(true);
@@ -58,9 +70,20 @@ public class TouchPadView extends View {
         float big = h * 0.15f;
         float sm = h * 0.075f;
 
-        // 左下: 左右移动
-        btnRect[BTN_LEFT]  = new float[]{m, h - big - m, m + big, h - m};
-        btnRect[BTN_RIGHT] = new float[]{m + big + m, h - big - m, m + 2 * big + m, h - m};
+        // 左下: 十字方向键 (热区 3c 见方, 各自 rect 仅用于画圆)
+        float c = big * 0.8f;
+        float padL = m;
+        float padT = h - 3 * c - m;
+        btnRect[BTN_LEFT]  = new float[]{padL, padT + c, padL + c, padT + 2 * c};
+        btnRect[BTN_RIGHT] = new float[]{padL + 2 * c, padT + c, padL + 3 * c, padT + 2 * c};
+        btnRect[BTN_UP]    = new float[]{padL + c, padT, padL + 2 * c, padT + c};
+        btnRect[BTN_DOWN]  = new float[]{padL + c, padT + 2 * c, padL + 2 * c, padT + 3 * c};
+        padRect[0] = padL;
+        padRect[1] = padT;
+        padRect[2] = padL + 3 * c;
+        padRect[3] = padT + 3 * c;
+        float dead = c * 0.34f;
+        padDeadSq = dead * dead;
 
         // 右下: 跳 / 跑 / 发射 (竖排)
         float rx = w - big - m;
@@ -79,7 +102,15 @@ public class TouchPadView extends View {
     }
 
     private int hitTest(float x, float y) {
-        for (int i = 0; i < BTN_COUNT; i++) {
+        // 方向键: 落在十字热区内按主轴判向, 中心死区防误触发; 区内滑动即可换向
+        if (padRect[2] > 0 && x >= padRect[0] && x <= padRect[2] && y >= padRect[1] && y <= padRect[3]) {
+            float dx = x - (padRect[0] + padRect[2]) / 2f;
+            float dy = y - (padRect[1] + padRect[3]) / 2f;
+            if (dx * dx + dy * dy < padDeadSq) return -1;
+            if (dx * dx > dy * dy) return dx > 0 ? BTN_RIGHT : BTN_LEFT;
+            return dy > 0 ? BTN_DOWN : BTN_UP;
+        }
+        for (int i = DPAD_LAST + 1; i < BTN_COUNT; i++) {
             float[] r = btnRect[i];
             if (x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]) return i;
         }
@@ -126,6 +157,8 @@ public class TouchPadView extends View {
         switch (btn) {
             case BTN_LEFT:  return KeyEvent.KEYCODE_DPAD_LEFT;
             case BTN_RIGHT: return KeyEvent.KEYCODE_DPAD_RIGHT;
+            case BTN_UP:    return KeyEvent.KEYCODE_DPAD_UP;
+            case BTN_DOWN:  return KeyEvent.KEYCODE_DPAD_DOWN;
             case BTN_JUMP:  return KeyEvent.KEYCODE_ALT_LEFT;
             case BTN_RUN:   return KeyEvent.KEYCODE_CTRL_LEFT;
             case BTN_FIRE:  return KeyEvent.KEYCODE_SPACE;
@@ -226,6 +259,11 @@ public class TouchPadView extends View {
 
     @Override
     protected void onDraw(Canvas canvas) {
+        if (padRect[2] > 0) {
+            // 淡色底表示整块都是方向键热区 (四角同样可判向, 不只是四个圆)
+            float pr = (padRect[2] - padRect[0]) * 0.08f;
+            canvas.drawRoundRect(padRect[0], padRect[1], padRect[2], padRect[3], pr, pr, padPaint);
+        }
         for (int i = 0; i < BTN_COUNT; i++) {
             float[] r = btnRect[i];
             if (r[2] == 0 || r[3] == 0) continue;

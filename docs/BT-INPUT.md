@@ -42,7 +42,7 @@
 | `SDLActivity` | 事件总线；`dispatchKeyEvent`（L665）→ `handleKeyEvent`（L1321）→ `onNativeKeyDown/Up` |
 | `SDLControllerManager` | 枚举 SOURCE_GAMEPAD/JOYSTICK/DPAD 设备注册为 SDL joystick；手柄按键 → `onNativePadDown/Up`（→ SDL joystick 按钮/hat）；摇杆 → `onNativeJoy` |
 | `HIDDeviceManager` | USB/BLE HID 特俗设备（Steam Controller），标准 BT HID 手柄**不走这里**，走系统 InputDevice |
-| `TouchPadView` | 触控层 8 键 → `onNativeKeyDown/Up` 注入（已验证，含防卡键三守卫） |
+| `TouchPadView` | 触控层 10 键 → `onNativeKeyDown/Up` 注入（已验证，含防卡键三守卫）；左下为十字方向键热区，上下兼作进管道键 |
 | `MARIO_ANDROID.PAS` | 已设 `SDL_HINT_ACCELEROMETER_AS_JOYSTICK=0`（加速度计不抢输入） |
 
 ### 2.3 蓝牙输入到达路径与现状结论

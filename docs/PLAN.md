@@ -210,10 +210,11 @@ powershell -ExecutionPolicy Bypass -File .\build-win32.ps1
 
 ### 10.3 触摸控制（TouchPadView）
 
-- `TouchPadView.java` 8 键：←→ 左下、跳/跑/发 右下竖排、顶部 暂停/声音/退出。
-- 经 `SDLActivity.onNativeKeyDown/Up` 注入原生键事件；防卡键三守卫（onDetachedFromWindow 释放、ACTION_UP 兜底释放、滑出按钮视为释放）。
+- `TouchPadView.java` 10 键：左下十字方向键 ←→↑↓（整块方形热区按主轴判向，中心死区防误触）、跳/跑/发 右下竖排、顶部 暂停/声音/退出；另有齿轮按钮开手柄设置页。
+- 方向键上下同时是进管道键：`KEYCODE_DPAD_DOWN` → `SDLK_DOWN` → `kbDown` → `CheckPipeBelow`（站在管道口按住），`KEYCODE_DPAD_UP` → `kbUp` → `CheckPipeAbove`（顶入上方管道）；菜单里上下键也能选择。
+- 经 `SDLActivity.onNativeKeyDown/Up` 注入原生键事件；防卡键三守卫（onDetachedFromWindow 释放、ACTION_UP 兜底释放、滑出按钮视为释放——方向区内滑动换向/滑进中心死区即走这条）。
 - 挂载点：SDLActivity.onCreate `setContentView(mLayout)` 之后（L419）。
-- 验证：触摸 JUMP 按住 600ms 马里奥起跳（像素 y:834→487）；触摸 EXIT 回主菜单有效。
+- 验证：触摸 JUMP 按住 600ms 马里奥起跳（像素 y:834→487）；触摸 EXIT 回主菜单有效。**十字方向键（含上下进管道）待真机验证**。
 
 ### 10.4 图标
 
