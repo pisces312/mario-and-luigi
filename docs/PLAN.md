@@ -210,12 +210,12 @@ powershell -ExecutionPolicy Bypass -File .\build-win32.ps1
 
 ### 10.3 触摸控制（TouchPadView）
 
-- `TouchPadView.java` 9 键：左下十字方向键 ←→↑↓（整块方形热区按主轴判向，中心死区防误触）、右下 JUMP|FIRE 合体为一行椭圆（左跳右发）、顶部 暂停/声音/退出；另有齿轮按钮开手柄设置页。
+- `TouchPadView.java` 9 键：左下十字方向键 ←→↑↓（整块方形热区按主轴判向，中心死区防误触）、右下 A=跳 / B=发射 两个圆（整排离底边上抬 0.45big）、顶部 暂停/声音/退出；另有齿轮按钮开手柄设置页。
 - **跑无独立键**：长按 ◀/▶ 约 220ms 自动补发 `CTRL_LEFT` 并保持，方向松开或换到 ↑/↓ 立即收回（↑/↓ 不参与——下管道要求 `XVel=0`）。设置页 `touch_auto_run` 可关。
 - 方向键上下同时是进管道键：`KEYCODE_DPAD_DOWN` → `SDLK_DOWN` → `kbDown` → `CheckPipeBelow`（站在管道口按住），`KEYCODE_DPAD_UP` → `kbUp` → `CheckPipeAbove`（顶入上方管道）；菜单里上下键也能选择。
 - 经 `SDLActivity.onNativeKeyDown/Up` 注入原生键事件；防卡键三守卫（onDetachedFromWindow 释放、ACTION_UP 兜底释放、滑出按钮视为释放——方向区内滑动换向/滑进中心死区即走这条，自动跑的 Ctrl 也经 `releaseAll()` 一并收回）。
 - 挂载点：SDLActivity.onCreate `setContentView(mLayout)` 之后（L419）。
-- 验证：触摸 JUMP 按住 600ms 马里奥起跳（像素 y:834→487）；触摸 EXIT 回主菜单有效。**十字方向键、椭圆跳/发、长按自动跑均待真机验证**（2400×1080 等 6 种横屏分辨率已用脚本核对无越界/无重叠）。
+- 验证：触摸 JUMP 按住 600ms 马里奥起跳（像素 y:834→487）；触摸 EXIT 回主菜单有效。**十字方向键、A/B 两圆、长按自动跑均待真机验证**（2400×1080 等 6 种横屏分辨率已用脚本核对无越界/无重叠）。
 
 ### 10.4 图标
 

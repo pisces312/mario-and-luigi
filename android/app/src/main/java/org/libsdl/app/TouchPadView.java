@@ -9,7 +9,7 @@ package org.libsdl.app;
  *   CTRL_LEFT         -> SDLK_LCTRL        跑 (无独立键: 长按 ◀/▶ 自动注入, 见 updateAutoRun)
  *   SPACE             -> SDLK_SPACE        发射
  *   P / Q / ESCAPE    -> 暂停 / 声音 / 退出
- * 布局: 左下十字方向键热区, 右下 JUMP|FIRE 一行椭圆, 顶排 暂停/声音/齿轮/退出
+ * 布局: 左下十字方向键热区, 右下 A(跳)/B(发射) 两圆, 顶排 暂停/声音/齿轮/退出
  * 防卡键三守卫:
  *   1. onDetachedFromWindow -> 释放所有按键
  *   2. 指针全部抬起但按键计数残留 -> 强制释放 (状态机安全网)
@@ -42,21 +42,19 @@ public class TouchPadView extends View {
     // BTN_LEFT..BTN_DOWN 是十字方向键, 命中判定用整个热区按方向分区, 不用各自的 rect
     private static final int DPAD_LAST = BTN_DOWN;
 
-    private static final String[] LABELS = {"\u25C0", "\u25B6", "\u25B2", "\u25BC", "JUMP", "FIRE", "\u2016", "\u266A", "\u2715", "\u2699"};
+    private static final String[] LABELS = {"\u25C0", "\u25B6", "\u25B2", "\u25BC", "A", "B", "\u2016", "\u266A", "\u2715", "\u2699"};
 
     private final SparseArray<Integer> pointerToButton = new SparseArray<Integer>();
     private final int[] pressCount = new int[BTN_COUNT];
     private final float[][] btnRect = new float[BTN_COUNT][4];
     private final float[] padRect = new float[4];
-    private final float[] pillRect = new float[4];
     private float padDeadSq;
-    private float big, cell, small, pillH;
+    private float big, cell, small;
     private MappingStore store;
     private boolean runInjected;
     private int runPendingDir = -1;
     private final Paint fillPaint = new Paint();
     private final Paint padPaint = new Paint();
-    private final Paint divPaint = new Paint();
     private final Paint textPaint = new Paint();
 
     // 自动跑: ◀/▶ 连续按住 AUTO_RUN_MS 后补发 CTRL_LEFT 并保持, 方向松开或换到 ↑/↓ 立即收回
@@ -76,7 +74,6 @@ public class TouchPadView extends View {
         fillPaint.setStyle(Paint.Style.FILL);
         padPaint.setColor(0x33222222);
         padPaint.setStyle(Paint.Style.FILL);
-        divPaint.setColor(0x66FFFFFF);
         textPaint.setColor(0xEEFFFFFF);
         textPaint.setTextAlign(Paint.Align.CENTER);
         textPaint.setAntiAlias(true);
@@ -89,9 +86,6 @@ public class TouchPadView extends View {
         big = h * 0.15f;
         small = h * 0.075f;
         cell = big * 0.8f;
-        pillH = big * 0.95f;
-        float pillW = big * 2.3f;
-        divPaint.setStrokeWidth(big * 0.02f);
 
         // 左下: 十字方向键 (热区 3c 见方, 各自 rect 仅用于画圆)
         float padL = m;
@@ -107,14 +101,12 @@ public class TouchPadView extends View {
         float dead = cell * 0.34f;
         padDeadSq = dead * dead;
 
-        // 右下: 跳 | 发射 合体成一个横向椭圆 (左半跳, 右半发射); 跑由长按方向键自动注入, 不占键位
-        float px2 = w - m, px1 = px2 - pillW, py2 = h - m, py1 = py2 - pillH;
-        btnRect[BTN_JUMP] = new float[]{px1, py1, px1 + pillW / 2f, py2};
-        btnRect[BTN_FIRE] = new float[]{px1 + pillW / 2f, py1, px2, py2};
-        pillRect[0] = px1;
-        pillRect[1] = py1;
-        pillRect[2] = px2;
-        pillRect[3] = py2;
+        // 右下: A=跳 / B=发射 两个圆, 整排离底边上抬 lift (拇指自然落点偏上)
+        float lift = big * 0.45f;
+        float by2 = h - m - lift, by1 = by2 - big;
+        float fx2 = w - m, fx1 = fx2 - big;
+        btnRect[BTN_FIRE] = new float[]{fx1, by1, fx2, by2};
+        btnRect[BTN_JUMP] = new float[]{fx1 - m - big, by1, fx1 - m, by2};
 
         // 顶部: 暂停 / 声音 / 退出 / 设置(齿轮, 退出左侧)
         btnRect[BTN_PAUSE] = new float[]{m, m, m + small, m + small};
@@ -327,18 +319,10 @@ public class TouchPadView extends View {
             float pr = (padRect[2] - padRect[0]) * 0.08f;
             canvas.drawRoundRect(padRect[0], padRect[1], padRect[2], padRect[3], pr, pr, padPaint);
         }
-        if (pillRect[2] > 0) {
-            canvas.drawOval(pillRect[0], pillRect[1], pillRect[2], pillRect[3], fillPaint);
-            float mid = (pillRect[0] + pillRect[2]) / 2f;
-            float inset = (pillRect[3] - pillRect[1]) * 0.16f;
-            canvas.drawLine(mid, pillRect[1] + inset, mid, pillRect[3] - inset, divPaint);
-        }
         for (int i = 0; i < BTN_COUNT; i++) {
             float[] r = btnRect[i];
             if (r[2] == 0 || r[3] == 0) continue;
-            if (i != BTN_JUMP && i != BTN_FIRE) {
-                canvas.drawCircle((r[0] + r[2]) / 2f, (r[1] + r[3]) / 2f, (r[2] - r[0]) * 0.45f, fillPaint);
-            }
+            canvas.drawCircle((r[0] + r[2]) / 2f, (r[1] + r[3]) / 2f, (r[2] - r[0]) * 0.45f, fillPaint);
             textPaint.setTextSize(textSizeFor(i));
             Paint.FontMetrics fm = textPaint.getFontMetrics();
             canvas.drawText(LABELS[i], (r[0] + r[2]) / 2f,
@@ -348,7 +332,7 @@ public class TouchPadView extends View {
 
     private float textSizeFor(int i) {
         if (i <= DPAD_LAST) return cell * 0.62f;
-        if (i == BTN_JUMP || i == BTN_FIRE) return pillH * 0.42f;
+        if (i == BTN_JUMP || i == BTN_FIRE) return big * 0.46f;
         return small * 0.62f;
     }
 }
