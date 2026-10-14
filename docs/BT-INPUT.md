@@ -42,7 +42,7 @@
 | `SDLActivity` | 事件总线；`dispatchKeyEvent`（L665）→ `handleKeyEvent`（L1321）→ `onNativeKeyDown/Up` |
 | `SDLControllerManager` | 枚举 SOURCE_GAMEPAD/JOYSTICK/DPAD 设备注册为 SDL joystick；手柄按键 → `onNativePadDown/Up`（→ SDL joystick 按钮/hat）；摇杆 → `onNativeJoy` |
 | `HIDDeviceManager` | USB/BLE HID 特俗设备（Steam Controller），标准 BT HID 手柄**不走这里**，走系统 InputDevice |
-| `TouchPadView` | 触控层 9 键 → `onNativeKeyDown/Up` 注入（已验证，含防卡键三守卫）；左下为十字方向键热区，上下兼作进管道键，跑键已取消（长按 ◀/▶ 自动注入 CTRL_LEFT） |
+| `TouchPadView` | 触控层 9 键 → `onNativeKeyDown/Up` 注入（已验证，含防卡键三守卫）；左下为十字方向键热区，上下兼作进管道键，跑键已取消（长按 ◀/▶ 自动注入 CTRL_LEFT）；7 组按钮位置可由用户在设置页拖拽自定义（§4.5） |
 | `MARIO_ANDROID.PAS` | 已设 `SDL_HINT_ACCELEROMETER_AS_JOYSTICK=0`（加速度计不抢输入） |
 
 ### 2.3 蓝牙输入到达路径与现状结论
@@ -110,6 +110,7 @@ SharedPreferences 文件名 `controller_prefs`：
 | `mapping_json` | String | 映射表 JSON（见 §6）；缺省 = 默认映射 |
 | `auto_hide_touchpad` | boolean | 手柄在线时自动隐藏触控层，默认 true |
 | `touch_auto_run` | boolean | 触控层长按 ◀/▶ 自动注入跑（CTRL_LEFT），默认 true |
+| `tp_layout` | String | 触控层 7 组按钮中心点 `"cx,cy;…"`（归一化 0..1，顺序见 §4.5）；缺省 = 内置默认布局 |
 
 - 设备**不**按 id 记忆（id 重连会变），按 **descriptor**（API 16+，minSdk 21 满足）；
 - 提供 `resetToDefault()`；读取失败一律回退默认，不抛异常进游戏。
@@ -143,7 +144,7 @@ SharedPreferences 文件名 `controller_prefs`：
 
 1. **设备状态**：实时列出全部输入设备（名称 / 来源图标：蓝牙·USB·内置 / 是否手柄类），选中设备高亮；底部"手柄选择"单选列表（任意 / 各手柄 descriptor）；
 2. **按键映射**：动作列表（10 项，见 §5），每行显示当前绑定文本（如 `A按钮 + ENTER`）；点击行进入**捕获对话框**："请按下手柄按键或推动摇杆…（返回键取消）"——对话框内 `onKeyDown` 记录 keycode、`onGenericMotionEvent` 记录轴+方向（|value|>0.7 判定），支持"追加绑定 / 清空本项"；
-3. **操作**：恢复默认映射、**测试模式**（大字实时显示"物理键 → 动作"，验证链路）、自动隐藏触控开关；
+3. **操作**：恢复默认映射、**测试模式**（大字实时显示"物理键 → 动作"，验证链路）、自动隐藏触控开关、自动跑开关、**编辑触控按钮位置** / **恢复默认布局**（§4.5）；
 4. **说明**：简短帮助（蓝牙配对请在系统设置完成；Ctrl+Space 为系统输入法快捷键等已知限制）。
 
 入口：
@@ -157,15 +158,33 @@ SharedPreferences 文件名 `controller_prefs`：
 | `onCreate` L419 触控层挂载处 | 之后创建 `GamepadInputMapper`（读 prefs、注册 InputDeviceListener），持有 TouchPadView 引用用于显隐联动 |
 | `dispatchKeyEvent` L665 | 音量键白名单之后、`super` 之前：`if (mInputMapper != null && mInputMapper.handleKeyEvent(event)) return true;` |
 | 新增 `dispatchGenericMotionEvent` 覆写 | `if (mInputMapper != null && mInputMapper.handleMotionEvent(ev)) return true; return super…` |
-| `onResume` | `mInputMapper.reloadIfChanged()` |
+| `onResume` | `mInputMapper.reloadIfChanged()`；`mTouchPad.reloadLayout()`（设置页可能改过按钮位置） |
 | `onPause` / `onDestroy` | `mInputMapper.releaseAll()` |
 
 注意：`mSurface.setOnGenericMotionListener` 已被 SDL 占用，**不可再 set**（会顶掉 SDL 的 listener）——摇杆拦截必须在 Activity dispatch 层完成。
 
-### 4.5 TouchPadView 联动
+### 4.5 TouchPadView 联动与按钮位置自定义
+
+**联动**
 
 - 新增第 9 键 `BTN_SETTINGS`（齿轮 ⚙，顶部小键区）：点击不注入键值，回调 SDLActivity `startActivity(ControllerSettingsActivity)`；
 - 显隐：mapper 检测到选定手柄在线且开关开 → `setVisibility(GONE)`；离线/开关关 → `VISIBLE`；`GONE` 前必须 `releaseAll()`（视图已有此守卫）。
+
+**位置自定义（7 组可拖动）**
+
+| 组 | 含按钮 | 说明 |
+|---|---|---|
+| `GROUP_DPAD` | ◀ ▶ ▲ ▼ | 十字热区（含中心死区）作为**一个整体**移动 |
+| `GROUP_JUMP` / `GROUP_FIRE` | A(跳) / B(发弹) | 各自独立 |
+| `GROUP_PAUSE` / `GROUP_SOUND` / `GROUP_EXIT` / `GROUP_SETTINGS` | ‖ ♪  ⚙ | 顶排四个小键各自独立 |
+
+- **只存中心点**：`tp_layout = "cx,cy;cx,cy;…"`（7 组、按上表顺序、归一化 0..1、4 位小数）。尺寸仍由屏幕推导（`big=0.15h`、`cell=0.8big`、`small=0.075h`），因此**只调位置不调大小**，且横竖屏/分辨率变化后自适应。
+- 布局管线：`relayout() = computeDefaults()` → `loadCustomLayout()` → `applyLayout()`；`onSizeChanged` 与 `reloadLayout()` 共用它。任一坏值 / 组数不符 → **整体**回退默认，不接受半套。
+- `applyLayout()` 里对中心点做 clamp（`half .. dim-half`），组永远完整在屏内；绘制与 `hitTest` 读同一份 rect，不存在两套坐标。
+- **编辑模式**：`setEditMode(true)` 后 `onTouchEvent` 短路到 `handleEditTouch`，**不注入任何键值**；按下记录"手指到组中心"的偏移，拖动跟手，`ACTION_UP` 落盘（`setTouchLayout`）。齿轮 ⚙ 在编辑模式只是被拖动的对象，退出用顶部固定的「完成」按钮（不参与持久化）。
+- 承载方式：设置页 `addContentView()` 叠一层全屏 `TouchPadView`（不注入 `P`——`PLAY.PAS` 的暂停是 `While Key = kbP do ;` 忙等，SDL 侧按键抬起不会送达，会卡死游戏）；返回键与其余按键在 `dispatchKeyEvent` 里被拦截，只关浮层。
+- 生效时机：游戏 `onResume` → `reloadLayout()`，即"设置页调完 → 返回游戏"立即生效，无需重启。
+
 
 ### 4.6 Manifest 变更
 
@@ -288,10 +307,12 @@ SharedPreferences 文件名 `controller_prefs`：
 ### 10.1 模拟器（pixel6 x86_64，无蓝牙，验证管线）
 
 - [x] 设置页可打开、默认映射展示正确、恢复默认生效（2026-10-14 冒烟：启动+渲染正常）
-- [ ] `adb shell input keyevent 19/20/21/22`（DPAD）→ 菜单选择移动
+- [x] `adb shell input keyevent 19/20/21/22`（DPAD）→ 菜单选择移动（2026-10-14：`keyevent 20` 使 START→OPTIONS 高亮下移）
 - [ ] 捕获对话框：`input keyevent` 能被记录为绑定
 - [ ] 自定义映射（如把 JUMP 改到 BUTTON_A=96）后注入生效
 - [ ] 触控层显隐开关切换正常，无卡键
+- [x] 按钮位置自定义（§4.5，2026-10-14 pixel6 2400x1080 实测）：设置页 →「编辑触控按钮位置」→ 浮层显示 7 组 + 顶部「完成」；`input swipe` 拖动 A 键与整个十字热区均跟手，松手后 `shared_prefs/controller_prefs.xml` 出现 `tp_layout`（7 组 `cx,cy`）；「完成」返回设置页，进游戏后触控层按新位置渲染，点新位置的 ▼ 菜单照常下移（命中判定与绘制同源）；「恢复默认布局」后 `tp_layout` 被移除，返回游戏布局回到默认
+- [x] debug 包 `install -r` 覆盖安装保留 `shared_prefs`（同证书生效；2026-10-14 升级后 `tp_layout` 仍在）
 
 ### 10.2 真机（用户 BT 手柄 + BT 键盘，待用户执行）
 
@@ -300,6 +321,7 @@ SharedPreferences 文件名 `controller_prefs`：
 - [ ] 手柄连接后触控层自动隐藏；游戏中拔电/断连 → 触控恢复且**无卡键**（角色不跑偏）
 - [ ] BT 键盘：方向/Alt/Ctrl/Space/Enter/Esc 直接可玩；改键（跳→Z）生效
 - [ ] 双设备：键盘与手柄同时在线互不干扰
+- [ ] 触控层按钮位置：真机手指拖拽手感、误触与其他 App 切换后布局是否仍生效（模拟器已验链路，**待真机验证**）
 - [ ] 长时间游戏（>10 分钟）稳定、无输入漂移
 
 ---

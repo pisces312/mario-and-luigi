@@ -73,5 +73,6 @@ gh release create v1.1.0 "D:/Temp/mario-android-v1.1.0-arm64.apk" \
 ## 已知坑（实测过）
 
 - **Java 源码里的图标字符必须写单反斜杠 `"\u25C0"`**。写成 `"\\u25C0"` 能编译通过，但运行时得到 6 字符字面量 `\u25C0`，触控层按钮会显示转义文本而不是符号（2026-10-14 javac 实测 `len=6`）。校验产物：读 APK 内 `classes.dex` 统计 `E2 97 80`（◀ 的 UTF-8 字节）是否出现。
+- **注释里也不能出现 `\u` 后跟 4 位十六进制**：javac 在词法分析前就做 Unicode 转义展开，注释写 `\u 转义` 会直接报「非法的 Unicode 逃逸」编译失败（2026-10-14 实测）。要提转义写法就写「u 转义」。
 - 触控层/映射层新增按键时，`setVisibility(GONE)` 与 `onDetachedFromWindow` 前必须 `releaseAll()`，否则 SDL 侧卡键（角色一直往一个方向跑）。
 - `SDLActivity.mSurface.setOnGenericMotionListener` 已被 SDL 占用，摇杆拦截只能在 Activity 的 `dispatchGenericMotionEvent` 做。
