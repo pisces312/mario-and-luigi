@@ -48,9 +48,12 @@ public class TouchPadView extends View {
     private final int[] pressCount = new int[BTN_COUNT];
     private final float[][] btnRect = new float[BTN_COUNT][4];
     private final float[] padRect = new float[4];
+    private final float[] pillRect = new float[4];
     private float padDeadSq;
+    private float big, cell, small, pillH;
     private final Paint fillPaint = new Paint();
     private final Paint padPaint = new Paint();
+    private final Paint divPaint = new Paint();
     private final Paint textPaint = new Paint();
 
     public TouchPadView(Context context) {
@@ -59,6 +62,7 @@ public class TouchPadView extends View {
         fillPaint.setStyle(Paint.Style.FILL);
         padPaint.setColor(0x33222222);
         padPaint.setStyle(Paint.Style.FILL);
+        divPaint.setColor(0x66FFFFFF);
         textPaint.setColor(0xEEFFFFFF);
         textPaint.setTextAlign(Paint.Align.CENTER);
         textPaint.setAntiAlias(true);
@@ -67,37 +71,46 @@ public class TouchPadView extends View {
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         float m = w * 0.015f;
-        float big = h * 0.15f;
-        float sm = h * 0.075f;
+        big = h * 0.15f;
+        small = h * 0.075f;
+        cell = big * 0.8f;
+        pillH = big * 0.8f;
+        float pillW = big * 2.1f;
+        divPaint.setStrokeWidth(big * 0.02f);
 
         // 左下: 十字方向键 (热区 3c 见方, 各自 rect 仅用于画圆)
-        float c = big * 0.8f;
         float padL = m;
-        float padT = h - 3 * c - m;
-        btnRect[BTN_LEFT]  = new float[]{padL, padT + c, padL + c, padT + 2 * c};
-        btnRect[BTN_RIGHT] = new float[]{padL + 2 * c, padT + c, padL + 3 * c, padT + 2 * c};
-        btnRect[BTN_UP]    = new float[]{padL + c, padT, padL + 2 * c, padT + c};
-        btnRect[BTN_DOWN]  = new float[]{padL + c, padT + 2 * c, padL + 2 * c, padT + 3 * c};
+        float padT = h - 3 * cell - m;
+        btnRect[BTN_LEFT]  = new float[]{padL, padT + cell, padL + cell, padT + 2 * cell};
+        btnRect[BTN_RIGHT] = new float[]{padL + 2 * cell, padT + cell, padL + 3 * cell, padT + 2 * cell};
+        btnRect[BTN_UP]    = new float[]{padL + cell, padT, padL + 2 * cell, padT + cell};
+        btnRect[BTN_DOWN]  = new float[]{padL + cell, padT + 2 * cell, padL + 2 * cell, padT + 3 * cell};
         padRect[0] = padL;
         padRect[1] = padT;
-        padRect[2] = padL + 3 * c;
-        padRect[3] = padT + 3 * c;
-        float dead = c * 0.34f;
+        padRect[2] = padL + 3 * cell;
+        padRect[3] = padT + 3 * cell;
+        float dead = cell * 0.34f;
         padDeadSq = dead * dead;
 
-        // 右下: 跳 / 跑 / 发射 (竖排)
+        // 右下: 跳 | 发射 合体成一个横向椭圆 (左半跳, 右半发射)
+        float px2 = w - m, px1 = px2 - pillW, py2 = h - m, py1 = py2 - pillH;
+        btnRect[BTN_JUMP] = new float[]{px1, py1, px1 + pillW / 2f, py2};
+        btnRect[BTN_FIRE] = new float[]{px1 + pillW / 2f, py1, px2, py2};
+        pillRect[0] = px1;
+        pillRect[1] = py1;
+        pillRect[2] = px2;
+        pillRect[3] = py2;
+
+        // 跑: 椭圆正上方
         float rx = w - big - m;
-        btnRect[BTN_JUMP] = new float[]{rx, h - 3 * (big + m), rx + big, h - 2 * (big + m)};
-        btnRect[BTN_RUN]  = new float[]{rx, h - 2 * (big + m), rx + big, h - big - m};
-        btnRect[BTN_FIRE] = new float[]{rx, h - big - m, rx + big, h - m};
+        btnRect[BTN_RUN] = new float[]{rx, py1 - m - big, rx + big, py1 - m};
 
         // 顶部: 暂停 / 声音 / 退出 / 设置(齿轮, 退出左侧)
-        btnRect[BTN_PAUSE] = new float[]{m, m, m + sm, m + sm};
-        btnRect[BTN_SOUND] = new float[]{m + sm + m, m, m + 2 * sm + m, m + sm};
-        btnRect[BTN_EXIT]  = new float[]{w - sm - m, m, w - m, m + sm};
-        btnRect[BTN_SETTINGS] = new float[]{w - 2 * sm - 2 * m, m, w - sm - 2 * m, m + sm};
+        btnRect[BTN_PAUSE] = new float[]{m, m, m + small, m + small};
+        btnRect[BTN_SOUND] = new float[]{m + small + m, m, m + 2 * small + m, m + small};
+        btnRect[BTN_EXIT]  = new float[]{w - small - m, m, w - m, m + small};
+        btnRect[BTN_SETTINGS] = new float[]{w - 2 * small - 2 * m, m, w - small - 2 * m, m + small};
 
-        textPaint.setTextSize(big * 0.55f);
         invalidate();
     }
 
@@ -264,17 +277,29 @@ public class TouchPadView extends View {
             float pr = (padRect[2] - padRect[0]) * 0.08f;
             canvas.drawRoundRect(padRect[0], padRect[1], padRect[2], padRect[3], pr, pr, padPaint);
         }
+        if (pillRect[2] > 0) {
+            canvas.drawOval(pillRect[0], pillRect[1], pillRect[2], pillRect[3], fillPaint);
+            float mid = (pillRect[0] + pillRect[2]) / 2f;
+            float inset = (pillRect[3] - pillRect[1]) * 0.16f;
+            canvas.drawLine(mid, pillRect[1] + inset, mid, pillRect[3] - inset, divPaint);
+        }
         for (int i = 0; i < BTN_COUNT; i++) {
             float[] r = btnRect[i];
             if (r[2] == 0 || r[3] == 0) continue;
-            float cx = (r[0] + r[2]) / 2f;
-            float cy = (r[1] + r[3]) / 2f;
-            float rad = (r[2] - r[0]) * 0.45f;
-            canvas.drawCircle(cx, cy, rad, fillPaint);
-            float fs = (i == BTN_PAUSE || i == BTN_SOUND || i == BTN_EXIT || i == BTN_SETTINGS)
-                    ? textPaint.getTextSize() * 0.9f : textPaint.getTextSize();
+            if (i != BTN_JUMP && i != BTN_FIRE) {
+                canvas.drawCircle((r[0] + r[2]) / 2f, (r[1] + r[3]) / 2f, (r[2] - r[0]) * 0.45f, fillPaint);
+            }
+            textPaint.setTextSize(textSizeFor(i));
             Paint.FontMetrics fm = textPaint.getFontMetrics();
-            canvas.drawText(LABELS[i], cx, cy - (fm.ascent + fm.descent) / 2f + fs * 0.02f, textPaint);
+            canvas.drawText(LABELS[i], (r[0] + r[2]) / 2f,
+                    (r[1] + r[3]) / 2f - (fm.ascent + fm.descent) / 2f, textPaint);
         }
+    }
+
+    private float textSizeFor(int i) {
+        if (i <= DPAD_LAST) return cell * 0.62f;
+        if (i == BTN_JUMP || i == BTN_FIRE) return pillH * 0.42f;
+        if (i == BTN_RUN) return big * 0.42f;
+        return small * 0.62f;
     }
 }
