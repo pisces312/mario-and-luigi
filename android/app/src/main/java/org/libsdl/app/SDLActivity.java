@@ -437,7 +437,8 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
             android.util.Log.e("SDL", "TouchPadView mount failed: " + e);
         }
 
-        setWindowStyle(false);
+        // Mario & Luigi: immersive fullscreen; setWindowStyle() below always applies it
+        setWindowStyle(true);
 
         getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(this);
 
@@ -1014,7 +1015,11 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
      */
     public static void setWindowStyle(boolean fullscreen) {
         // Called from SDLMain() thread and can't directly affect the view
-        mSingleton.sendCommand(COMMAND_CHANGE_WINDOW_STYLE, fullscreen ? 1 : 0);
+        // Mario & Luigi: the game creates a plain SDL_WINDOW_SHOWN window, so SDL calls
+        // back with false during SDL_CreateWindow and that would re-show the status bar
+        // (the app theme is already NoTitleBar.Fullscreen). There is only one window and
+        // no code path ever requests windowed mode, so always stay immersive.
+        mSingleton.sendCommand(COMMAND_CHANGE_WINDOW_STYLE, 1);
     }
 
     /**
