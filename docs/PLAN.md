@@ -211,12 +211,12 @@ powershell -ExecutionPolicy Bypass -File .\build-win32.ps1
 ### 10.3 触摸控制（TouchPadView）
 
 - `TouchPadView.java` 9 键：左下十字方向键 ←→↑↓（整块方形热区按主轴判向，中心死区防误触）、右下 B=发射 / A=跳 两个圆（**左 B 右 A，沿用红白机布局**；整排离底边上抬 0.45big）、顶部 暂停/声音/退出；另有齿轮按钮开手柄设置页。
-- **跑无独立键**：长按 ◀/▶ 约 220ms 自动补发 `CTRL_LEFT` 并保持，方向松开或换到 ↑/↓ 立即收回（↑/↓ 不参与——下管道要求 `XVel=0`）。设置页 `touch_auto_run` 可关。
+- **跑无独立键**：长按 ◀/▶ 约 220ms 自动补发 `CTRL_LEFT` 并保持，方向松开或换到 ↑/↓ 立即收回（↑/↓ 不参与——下管道要求 `XVel=0`）。设置页 `touch_auto_run` 可关。同一规则 2026-10-14 起也覆盖手柄/蓝牙键盘的方向来源（`GamepadInputMapper`，阈值 `MappingStore.AUTO_RUN_MS` 两侧共用），见 `docs/BT-INPUT.md` §4.8。
 - 方向键上下同时是进管道键：`KEYCODE_DPAD_DOWN` → `SDLK_DOWN` → `kbDown` → `CheckPipeBelow`（站在管道口按住），`KEYCODE_DPAD_UP` → `kbUp` → `CheckPipeAbove`（顶入上方管道）；菜单里上下键也能选择。
 - **按钮位置可自定义**：7 组（十字方向键算一组）各自可拖拽，只存归一化中心点 `tp_layout="cx,cy;…"`（`MappingStore`），尺寸仍由屏幕推导 → 只调位置不调大小、旋转/换分辨率自适应；绘制与命中判定共用同一份 rect。入口在设置页「编辑触控按钮位置」，以全屏浮层承载编辑模式的 `TouchPadView`（不注入 `P`——`PLAY.PAS` 暂停是忙等，SDL 侧抬起事件送不进去会卡死），松手即落盘，顶部「完成」退出，「恢复默认布局」撤销。游戏 `onResume` → `reloadLayout()` 立即生效。详见 `docs/BT-INPUT.md` §4.5。
 - 经 `SDLActivity.onNativeKeyDown/Up` 注入原生键事件；防卡键三守卫（onDetachedFromWindow 释放、ACTION_UP 兜底释放、滑出按钮视为释放——方向区内滑动换向/滑进中心死区即走这条，自动跑的 Ctrl 也经 `releaseAll()` 一并收回）。
 - 挂载点：SDLActivity.onCreate `setContentView(mLayout)` 之后（L419）。
-- 验证：触摸 JUMP 按住 600ms 马里奥起跳（像素 y:834→487）；触摸 EXIT 回主菜单有效。2026-10-14 pixel6 模拟器另测：`input keyevent 20` 与点按拖到新位置的 ▼ 均使菜单 START→OPTIONS（自定义布局下命中与注入链路正常）；拖拽→落盘→返回游戏重绘→恢复默认 全流程通过。**A/B 两圆手感、长按自动跑、真机手指拖拽仍待真机验证**（2400×1080 等 6 种横屏分辨率已用脚本核对无越界/无重叠，且默认布局与改造前逐像素一致）。
+- 验证：触摸 JUMP 按住 600ms 马里奥起跳（像素 y:834→487）；触摸 EXIT 回主菜单有效。2026-10-14 pixel6 模拟器另测：`input keyevent 20` 与点按拖到新位置的 ▼ 均使菜单 START→OPTIONS（自定义布局下命中与注入链路正常）；拖拽→落盘→返回游戏重绘→恢复默认 全流程通过。**A/B 两圆手感、触屏长按自动跑、真机手指拖拽仍待真机验证**（2400×1080 等 6 种横屏分辨率已用脚本核对无越界/无重叠，且默认布局与改造前逐像素一致）。**手柄长按方向键自动跑已于 2026-10-14 真机 BT 手柄实测生效**。
 
 ### 10.4 图标
 
@@ -244,3 +244,10 @@ powershell -ExecutionPolicy Bypass -File .\build-win32.ps1
 
 - 状态栏原本可见并非主题问题（`AppTheme` 已继承 `Theme.NoTitleBar.Fullscreen`），而是 SDL 在建窗口过程中把它关掉：`SDLActivity.onCreate` 的 `setWindowStyle(false)`，加上 `SDL_CreateWindow` → `SDL_UpdateFullscreenMode(window, SDL_FALSE)` → JNI 再次 `setWindowStyle(false)`。
 - 修法只动 Java：`onCreate` 改传 `true`，并让 `setWindowStyle()` 的命令参数恒为全屏（游戏单窗口、永不请求窗口化）。不改 `*.PAS`、不重编 native。链路与依据详见 `docs/BT-INPUT.md` §4.7。
+
+### 10.9 手柄/键盘长按方向键自动跑（补齐触控层专属功能）
+
+- 缺口成因：自动跑的状态机原本只存在于 `TouchPadView`；手柄在线时触控层被 `setVisibility(GONE)`（顺带 `releaseAll()` 把待发的定时器一起清掉），而 `GamepadInputMapper` 只做"按下即注入、抬起即收回"、没有任何时间维度——所以手柄与蓝牙键盘上长按方向键不会起跑。
+- 修法（仅 Java）：映射层补一套同规则状态机。方向来源按"动作 → 活跃来源数"计数（十字键、左摇杆、HAT 可能对同一方向同时上报，不能按单来源松手就退出），横向连续按住阈值后经引用计数注入 RUN，↑/↓ 一旦参与立即收回，`releaseAll()` 连带清定时器与计数。细节与依据见 `docs/BT-INPUT.md` §4.8。
+- 与实体跑键共存：注入走 `virtualRef` 引用计数，按住 B 跑时长按方向键结束不会提前把 Ctrl 松开。
+- 验证：2026-10-14 用户真机 BT 手柄实测——长按方向键可进入跑速。模拟器侧确认 `input keyevent --down/--up` 可以模拟"按住"（API 34），但本次未取到走/跑速度对照数据。

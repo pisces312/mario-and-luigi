@@ -109,7 +109,7 @@ SharedPreferences 文件名 `controller_prefs`：
 | `selected_device` | String | 选定手柄的 `InputDevice.getDescriptor()`；空串 = "任意手柄设备"（默认，插上即玩） |
 | `mapping_json` | String | 映射表 JSON（见 §6）；缺省 = 默认映射 |
 | `auto_hide_touchpad` | boolean | 手柄在线时自动隐藏触控层，默认 true |
-| `touch_auto_run` | boolean | 触控层长按 ◀/▶ 自动注入跑（CTRL_LEFT），默认 true |
+| `touch_auto_run` | boolean | 长按 ◀/▶ 自动注入跑（CTRL_LEFT），**触控层与手柄/键盘映射层共用**，默认 true |
 | `tp_layout` | String | 触控层 7 组按钮中心点 `"cx,cy;…"`（归一化 0..1，顺序见 §4.5）；缺省 = 内置默认布局 |
 
 - 设备**不**按 id 记忆（id 重连会变），按 **descriptor**（API 16+，minSdk 21 满足）；
@@ -129,6 +129,8 @@ SharedPreferences 文件名 `controller_prefs`：
 2. 轴数字化状态机：每条已绑轴（如 AXIS_X→左/右）维护当前符号状态，**进入阈值 0.5、释放回差 0.3**，跨越时发送对应方向键 down/up；
 3. AXIS_HAT_X/Y（部分十字键走 hat）同样按方向键处理；
 4. 已绑轴 consume，未绑轴放行。
+
+**长按自动跑**：方向来源连续按住 `AUTO_RUN_MS` 后补发 RUN，规则与触控层逐条对齐，见 §4.8。
 
 **生命周期**：
 
@@ -216,6 +218,25 @@ SharedPreferences 文件名 `controller_prefs`：
 - 触控层可用高度随之变大（导航栏区域让出），归一化布局自动适配；此前存过 `tp_layout` 的用户可能要重新微调位置。
 - 兼容边界：真机 Android 13、模拟器 API 34 上 legacy `SYSTEM_UI_FLAG_*` 有效（2026-10-14 实测）。本项目 `targetSdk=36`，Android 15+ 机型若隐藏失效需补 `WindowInsetsController` 分支——**未在 Android 15+ 实测**。
 
+### 4.8 长按方向键自动跑（触控层与手柄/键盘共用）
+
+跑键（RUN = `CTRL_LEFT`）在触控层已取消，改由长按 ◀/▶ 补发。手柄在线时触控层被置 `GONE`（§4.5），而映射层原本只有"按下即注入、抬起即收回"、没有任何时间维度，所以手柄与蓝牙键盘上长按方向键不会起跑——原先手柄的跑只有 B/Y/L1/R2/右扳机（§5）。
+
+**改法（仅 Java，不需重编 native）**：在 `GamepadInputMapper` 里补一套与触控层同规则的状态机。
+
+| 要点 | 实现 |
+|---|---|
+| 阈值共用 | `MappingStore.AUTO_RUN_MS = 220`，`TouchPadView` 不再自持常量，两条路径同一份 |
+| 方向来源计数 | `dirHold: 动作 → 活跃来源数`。十字键（token `k:21`）、左摇杆（`a:16:-1:LEFT`）、HAT 可能对同一个 LEFT 同时上报，必须计数，否则"任一来源松手就退出"会提前收跑 |
+| 触发/退出规则 | 与 `TouchPadView.updateAutoRun` / `runningDirection` 逐条对齐：只有 LEFT/RIGHT 参与；UP/DOWN 一旦激活立即取消计时并收回；同方向被别的来源重复激活不重新计时（下管道要求 `XVel=0`，所以 ↑/↓ 不参与） |
+| 注入走引用计数 | 到点后 `pressToken("auto:run", {RUN})`，与实体 B/Y/L1/R2 共用 `virtualRef` 计数——按住 B 跑时长按方向键结束，不会提前把 Ctrl 松开 |
+| 收回与防卡键 | `releaseAll()` 开头 `cancelRunSchedule()` + `releaseRun()`，并清 `dirHold`；覆盖设备断开、`onPause`、映射重载、`destroy()` |
+| 定时通道 | 主线程 `Handler`（mapper 在 `onCreate` 主线程构造），`postDelayed` / `removeCallbacks` 成对。未采用系统 key repeat 计数或 `KeyEvent.isLongPress()`：前者重复率随设备变、部分 pad 的十字键根本不报重复，后者阈值固定在 ~500ms 且需 API 34 |
+
+覆盖输入：手柄十字键、左摇杆、HAT、蓝牙键盘方向键（同一条按键通路）。游戏侧只读 `SDL_KEYDOWN`（`KEYBOARD.PAS:182` 把 `SDLK_LCTRL` 记成 `keyCtrl`），不碰 joystick，因此改动全在注入层。
+
+**已知限制（方案 B 未做）**：触控层的自动跑仍是裸 `onNativeKeyDown/Up`（`TouchPadView.java:108` / `:403`），与映射层的引用计数各持一份状态。只有"手柄在线 + 关闭自动隐藏 + 手指同时按住屏幕 ◀/▶"这种叠加用法才会互相覆盖，表现为先松开的来源把跑停下——方向上只会提前 UP、不会漏 UP，所以不产生卡键。
+
 ---
 
 ## 5. 动作表与默认映射
@@ -249,6 +270,7 @@ SharedPreferences 文件名 `controller_prefs`：
 | SELECT（BUTTON_SELECT） | ESCAPE | 菜单返回 / 游戏退出 |
 
 > B 不绑 ESCAPE（游戏里按 B 会误触退出）；菜单返回统一用 SELECT。
+> 长按 ◀/▶（十字键或左摇杆）220ms 会自动补发 `CTRL_LEFT`（§4.8），不想用就把设置页的自动跑开关关掉，实体跑键不受影响。
 
 ---
 
@@ -283,6 +305,7 @@ SharedPreferences 文件名 `controller_prefs`：
 | 键盘 Alt 直通 | BT 键盘 ALT_LEFT 未绑定时不 consume，SDL 原生映射即 SDLK_LALT=跳——默认零配置 |
 | 设备失配 | descriptor 匹配失败（罕见）时回退"任意手柄"并 Toast 提示重选 |
 | 模拟器调试 | "任意手柄"模式下 `adb shell input keyevent` 注入的键也会过映射管线，可无蓝牙验证大部分逻辑 |
+| 自动跑双份状态 | 触控层用裸注入、映射层用引用计数，只在"手柄在线 + 关自动隐藏 + 手指同时按住屏幕 ◀/▶"的叠加用法下互相覆盖（提前停下、不卡键），见 §4.8 |
 | 延迟 | 注入与触控层同通道，实测 50fps 无感；不引入额外线程/轮询 |
 
 ---
@@ -335,6 +358,7 @@ SharedPreferences 文件名 `controller_prefs`：
 - [ ] 手柄配对（系统设置）→ 进游戏：十字键/左摇杆移动、A 跳、B 跑、X 发弹、START 暂停、SELECT 返回，**全程菜单可纯手柄操作**（A 确认）
 - [ ] 改键：跳改到 R1，保存后生效，重启游戏仍在
 - [ ] 手柄连接后触控层自动隐藏；游戏中拔电/断连 → 触控恢复且**无卡键**（角色不跑偏）
+- [x] 手柄长按 ◀/▶ 自动跑（§4.8，2026-10-14 用户真机 BT 手柄实测：长按方向键约 220ms 后进入跑速，功能生效）
 - [ ] BT 键盘：方向/Alt/Ctrl/Space/Enter/Esc 直接可玩；改键（跳→Z）生效
 - [ ] 双设备：键盘与手柄同时在线互不干扰
 - [ ] 触控层按钮位置：真机手指拖拽手感、误触与其他 App 切换后布局是否仍生效（模拟器已验链路，**待真机验证**）
