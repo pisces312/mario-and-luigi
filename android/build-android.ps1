@@ -11,15 +11,17 @@ $ErrorActionPreference = 'Stop'
 $Root      = $PSScriptRoot
 $Repo      = Split-Path $Root -Parent          # mario-and-luigi/
 $SDLPath   = "$Root\3rd\SDL"
-$NDK       = 'D:\dev\android_sdk\ndk\21.4.7075529'          # FPC 链接用 (GNU binutils, FPC 3.2.2 硬依赖)
-$NDKBuild  = 'D:\dev\android_sdk\ndk\29.0.14206865\ndk-build.cmd'  # SDL2 C 库编译用 (NDK 29, 16KB 页对齐)
+# --- 工具链（可用环境变量覆盖；默认本机 D:\dev 固定位置） ---
+$FPCAndroidHome = if ($env:FPC_ANDROID_HOME) { $env:FPC_ANDROID_HOME } else { 'D:\dev\FPC-android' }
+$NDK            = if ($env:ANDROID_NDK_HOME) { $env:ANDROID_NDK_HOME } else { 'D:\dev\android_sdk\ndk\21.4.7075529' }  # FPC 链接用 (GNU binutils, FPC 3.2.2 硬依赖)
+$NDKBuild  = if ($env:ANDROID_NDK29_HOME) { Join-Path $env:ANDROID_NDK29_HOME 'ndk-build.cmd' } else { 'D:\dev\android_sdk\ndk\29.0.14206865\ndk-build.cmd' }  # SDL2 C 库编译用 (NDK 29, 16KB 页对齐)
 
 # 说明: FPC 3.2.2 无法使用 NDK 29 平台库 ——
 #   * NDK 29 的 libc.so 等为 LLVM bitcode 包装, 仅 ld.lld 可链接
 #   * FPC 生成的 GNU ld 链接脚本 (INSERT AFTER) 与 ld.lld 不兼容
 #   * GNU as/ld + r21e 平台库 仅用于 FPC 侧, SDL2 与游戏资源均在 NDK 29 编译
-$PPBin     = 'D:\dev\FPC-android\bin\i386-win32'
-$RTLRoot   = 'D:\dev\FPC-android\units'
+$PPBin     = Join-Path $FPCAndroidHome 'bin\i386-win32'
+$RTLRoot   = Join-Path $FPCAndroidHome 'units'
 
 # 游戏 Pascal 入口 (Android 专用: library + SDL_main)
 $PascalMain = "$Repo\MARIO_ANDROID.PAS"

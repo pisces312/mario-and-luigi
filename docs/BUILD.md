@@ -50,6 +50,7 @@
 - **PATH 已移除 `D:\dev\FPC\bin`**（避免与交叉版混用），FPC 一律显式全路径调用
 - Android 构建时脚本临时把 NDK r21e 的 binutils 目录加进 PATH（脚本内完成）
 - 构建 Android APK 时确保 `GRADLE_USER_HOME=D:\dev\.gradle`（离线可用，腾讯镜像缓存）
+- 工具链固定路径（`D:\dev\...`）可在调用脚本前用环境变量覆盖：`FPC_HOME` / `FPC_ANDROID_HOME` / `ANDROID_NDK_HOME`（r21e）/ `ANDROID_NDK29_HOME`（NDK 29）/ `ANDROID_NDK27_HOME`（NDK 27）；脚本默认仍指向 `D:\dev\...`，不设置则行为不变
 
 ## 2. Windows 版构建命令
 
@@ -64,9 +65,9 @@ REM 运行: 同目录需 SDL2.dll（32 位）
 
 ```powershell
 # 一键脚本（已完成全部路径/参数封装）：
-powershell -ExecutionPolicy Bypass -File D:\workspace\mario-android-port\mario-and-luigi\android\build-android.ps1
+powershell -ExecutionPolicy Bypass -File .\mario-and-luigi\android\build-android.ps1
 # 然后打 APK：
-cd D:\workspace\mario-android-port\mario-and-luigi\android
+cd mario-and-luigi\android
 .\gradlew.bat assembleDebug --offline
 # APK 输出：
 #   app\build\outputs\apk\debug\app-debug.apk
