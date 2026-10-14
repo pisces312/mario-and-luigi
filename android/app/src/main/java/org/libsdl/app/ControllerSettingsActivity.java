@@ -161,7 +161,7 @@ public class ControllerSettingsActivity extends Activity implements InputManager
         ops.addView(testBox, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
         CheckBox hideBox = new CheckBox(this);
-        hideBox.setText("手柄连接时自动隐藏触控层");
+        hideBox.setText("手柄连接时自动收起操作键（方向/A/B，工具键保留）");
         hideBox.setChecked(store.getAutoHide());
         hideBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override

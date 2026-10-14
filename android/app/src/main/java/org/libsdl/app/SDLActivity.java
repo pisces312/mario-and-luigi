@@ -734,11 +734,13 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         return super.dispatchGenericMotionEvent(event);
     }
 
-    // Mario & Luigi: show/hide touch overlay per gamepad presence (docs/BT-INPUT.md §4.5)
+    // Mario & Luigi: collapse game controls per gamepad presence (docs/BT-INPUT.md §4.5)
     private void updateTouchPadVisibility() {
         if (mTouchPad == null || mInputMapper == null) return;
         boolean hide = mInputMapper.isAutoHideEnabled() && mInputMapper.isGamepadOnline();
-        mTouchPad.setVisibility(hide ? View.GONE : View.VISIBLE);
+        // 整层不再 GONE: 顶部工具键(暂停/声音/退出/齿轮)常驻, 手柄在线时也能进设置页
+        mTouchPad.setVisibility(View.VISIBLE);
+        mTouchPad.setControlsVisible(!hide);
     }
 
     /* Transition to next state */

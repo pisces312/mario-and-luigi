@@ -74,6 +74,8 @@ public class TouchPadView extends View {
     private MappingStore store;
     private boolean runInjected;
     private int runPendingDir = -1;
+    // 手柄在线时收起游戏操作键(方向/A/B), 顶部工具键(暂停/声音/退出/齿轮)常驻
+    private boolean controlsVisible = true;
     private final Paint fillPaint = new Paint();
     private final Paint padPaint = new Paint();
     private final Paint textPaint = new Paint();
@@ -148,6 +150,24 @@ public class TouchPadView extends View {
     /** 游戏侧从设置页返回后调用, 让新布局立即生效 */
     public void reloadLayout() {
         relayout();
+    }
+
+    /** 手柄在线时的收起策略: 只收游戏操作键, 工具键(暂停/声音/退出/齿轮)保持可点 */
+    public void setControlsVisible(boolean visible) {
+        if (controlsVisible == visible) return;
+        if (!visible) releaseAll(); // 防卡键: 收起前释放全部已注入按键
+        controlsVisible = visible;
+        invalidate();
+    }
+
+    /** 编辑模式始终显示全部组, 否则手柄在线时也要能调方向键的位置 */
+    private boolean showControls() {
+        return controlsVisible || editMode;
+    }
+
+    /** 绘制与命中判定共用同一判据, 避免"看不见的键仍可被点中" */
+    private boolean buttonShown(int btn) {
+        return showControls() || btn > BTN_FIRE;
     }
 
     private void computeDefaults() {
@@ -254,7 +274,7 @@ public class TouchPadView extends View {
 
     private int hitTest(float x, float y) {
         // 方向键: 落在十字热区内按主轴判向, 中心死区防误触发; 区内滑动即可换向
-        if (padRect[2] > 0 && x >= padRect[0] && x <= padRect[2] && y >= padRect[1] && y <= padRect[3]) {
+        if (showControls() && padRect[2] > 0 && x >= padRect[0] && x <= padRect[2] && y >= padRect[1] && y <= padRect[3]) {
             float dx = x - (padRect[0] + padRect[2]) / 2f;
             float dy = y - (padRect[1] + padRect[3]) / 2f;
             if (dx * dx + dy * dy < padDeadSq) return -1;
@@ -263,6 +283,7 @@ public class TouchPadView extends View {
         }
         for (int i = DPAD_LAST + 1; i < BTN_COUNT; i++) {
             float[] r = btnRect[i];
+            if (!buttonShown(i)) continue;
             if (x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]) return i;
         }
         return -1;
@@ -528,7 +549,7 @@ public class TouchPadView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         if (editMode) canvas.drawColor(EDIT_BG);
-        if (padRect[2] > 0) {
+        if (showControls() && padRect[2] > 0) {
             // 淡色底表示整块都是方向键热区 (四角同样可判向, 不只是四个圆)
             float pr = (padRect[2] - padRect[0]) * 0.08f;
             if (dragGroup == GROUP_DPAD) {
@@ -542,6 +563,7 @@ public class TouchPadView extends View {
         for (int i = 0; i < BTN_COUNT; i++) {
             float[] r = btnRect[i];
             if (r[2] == 0 || r[3] == 0) continue;
+            if (!buttonShown(i)) continue;
             if (editMode && dragGroup == groupOfButton(i)) {
                 canvas.drawRect(r[0], r[1], r[2], r[3], hiPaint);
             }
