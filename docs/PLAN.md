@@ -233,8 +233,14 @@ powershell -ExecutionPolicy Bypass -File .\build-win32.ps1
 
 - 启动无崩溃、菜单全链路（Intro→存档→主→人数→游戏）、LEVEL 1 游玩、右移、触摸跳跃、触摸 EXIT 回菜单、长时间运行（>5 分钟）稳定。
 - 存档（MARIO.CFG/MARIO.SAV 写 filesDir）代码路径确认（WriteConfig 于 SDL_main 尾部、GetConfigName/GetSaveName 固定文件名、SDL_AndroidGetInternalStoragePath chdir）；模拟器自动化退出流程受窗口焦点抖动干扰，落盘实机验收项留待真机。
+- 2026-10-14 模拟器：沉浸式全屏生效——状态栏与导航栏隐藏、画面用满 1080 高度且无拉伸、边缘下拉露出系统栏后自动收回。**真机待验证**。
 - 真机 arm64 待用户装机验收。
 
 ### 10.7 git
 
 - 提交 e6da2fe 已推送 origin（pisces312/mario-and-luigi）。
+
+### 10.8 屏幕显示：沉浸式全屏（隐藏状态栏/导航栏）
+
+- 状态栏原本可见并非主题问题（`AppTheme` 已继承 `Theme.NoTitleBar.Fullscreen`），而是 SDL 在建窗口过程中把它关掉：`SDLActivity.onCreate` 的 `setWindowStyle(false)`，加上 `SDL_CreateWindow` → `SDL_UpdateFullscreenMode(window, SDL_FALSE)` → JNI 再次 `setWindowStyle(false)`。
+- 修法只动 Java：`onCreate` 改传 `true`，并让 `setWindowStyle()` 的命令参数恒为全屏（游戏单窗口、永不请求窗口化）。不改 `*.PAS`、不重编 native。链路与依据详见 `docs/BT-INPUT.md` §4.7。

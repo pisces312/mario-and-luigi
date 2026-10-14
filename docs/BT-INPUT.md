@@ -160,6 +160,7 @@ SharedPreferences 文件名 `controller_prefs`：
 | 新增 `dispatchGenericMotionEvent` 覆写 | `if (mInputMapper != null && mInputMapper.handleMotionEvent(ev)) return true; return super…` |
 | `onResume` | `mInputMapper.reloadIfChanged()`；`mTouchPad.reloadLayout()`（设置页可能改过按钮位置） |
 | `onPause` / `onDestroy` | `mInputMapper.releaseAll()` |
+| `onCreate` L440 与 `setWindowStyle()` L1015 | 强制沉浸式全屏（隐藏状态栏/导航栏），见 §4.7 |
 
 注意：`mSurface.setOnGenericMotionListener` 已被 SDL 占用，**不可再 set**（会顶掉 SDL 的 listener）——摇杆拦截必须在 Activity dispatch 层完成。
 
@@ -200,6 +201,20 @@ SharedPreferences 文件名 `controller_prefs`：
 ```
 
 **权限：零新增。** 设备枚举走 `InputManager/InputDevice` API，不需要蓝牙权限。`BLUETOOTH_CONNECT`（API 31+ 运行时权限）仅当未来要显示"系统已配对蓝牙设备列表"时才需申请——本期不做，文档备案。
+
+### 4.7 沉浸式全屏（隐藏状态栏与导航栏）
+
+主题 `AppTheme` 本就继承 `android:Theme.NoTitleBar.Fullscreen`，状态栏之所以还在，是 SDL 把它关掉了两次：
+
+1. `SDLActivity.onCreate` 的 `setWindowStyle(false)`；
+2. `SDL_CreateWindow` 链路：`SDL_video.c:1854` `SDL_UpdateFullscreenMode(window, FULLSCREEN_VISIBLE(window))`，游戏窗口只带 `SDL_WINDOW_SHOWN`（`VGA256.PAS:195`）→ 传 `SDL_FALSE` → `SDL_androidwindow.c:121` `Android_JNI_SetWindowStyle(false)` → 同一个 handler 的 else 分支（`FLAG_FORCE_NOT_FULLSCREEN` + `SYSTEM_UI_FLAG_VISIBLE`），并把 `mFullscreenModeActive` 置 false，连带让 `onSystemUiVisibilityChange` 的"自动收回"逻辑失效。
+
+**改法（仅 Java，不需重编 native）**：`onCreate` 改 `setWindowStyle(true)`；`setWindowStyle()` 内把命令参数恒置 `1`。安全性依据：游戏只有一个窗口，`*.PAS` 里除 `VGA256.PAS:195` 的 `SDL_CreateWindow` 外没有任何 `SDL_SetWindowFullscreen` / `SDL_GetWindowFlags` / `ShowWindow` / `SetWindowSize` 调用，运行期不存在"合法请求窗口化"的场景。
+
+- 效果取自 SDL 现成的 true 分支：immersive-sticky 同时隐藏状态栏与导航栏、刘海屏 `LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES`，并置 `mFullscreenModeActive=true` → 边缘下拉临时露出系统栏后 2s 自动收回，且露出期间画面不缩放。
+- 画面由 `SDL_RenderSetLogicalSize`（`VGA256.PAS:215`）按新窗口尺寸重新 letterbox，不拉伸。
+- 触控层可用高度随之变大（导航栏区域让出），归一化布局自动适配；此前存过 `tp_layout` 的用户可能要重新微调位置。
+- 兼容边界：真机 Android 13、模拟器 API 34 上 legacy `SYSTEM_UI_FLAG_*` 有效（2026-10-14 实测）。本项目 `targetSdk=36`，Android 15+ 机型若隐藏失效需补 `WindowInsetsController` 分支——**未在 Android 15+ 实测**。
 
 ---
 
@@ -313,6 +328,7 @@ SharedPreferences 文件名 `controller_prefs`：
 - [ ] 触控层显隐开关切换正常，无卡键
 - [x] 按钮位置自定义（§4.5，2026-10-14 pixel6 2400x1080 实测）：设置页 →「编辑触控按钮位置」→ 浮层显示 7 组 + 顶部「完成」；`input swipe` 拖动 A 键与整个十字热区均跟手，松手后 `shared_prefs/controller_prefs.xml` 出现 `tp_layout`（7 组 `cx,cy`）；「完成」返回设置页，进游戏后触控层按新位置渲染，点新位置的 ▼ 菜单照常下移（命中判定与绘制同源）；「恢复默认布局」后 `tp_layout` 被移除，返回游戏布局回到默认
 - [x] debug 包 `install -r` 覆盖安装保留 `shared_prefs`（同证书生效；2026-10-14 升级后 `tp_layout` 仍在）
+- [x] 沉浸式全屏（§4.7，2026-10-14 pixel6 2400x1080 实测）：进游戏后状态栏与导航栏均隐藏、顶排小键贴到屏幕最上沿；画面按整屏高度重新 letterbox，无拉伸、像素仍最近邻；边缘下拉临时露出系统栏时画面不缩放，随后自动收回
 
 ### 10.2 真机（用户 BT 手柄 + BT 键盘，待用户执行）
 
@@ -322,6 +338,7 @@ SharedPreferences 文件名 `controller_prefs`：
 - [ ] BT 键盘：方向/Alt/Ctrl/Space/Enter/Esc 直接可玩；改键（跳→Z）生效
 - [ ] 双设备：键盘与手柄同时在线互不干扰
 - [ ] 触控层按钮位置：真机手指拖拽手感、误触与其他 App 切换后布局是否仍生效（模拟器已验链路，**待真机验证**）
+- [ ] 沉浸式全屏：S20 挖孔与侧滑手势区是否挡住顶排/底部按钮，切后台再回来仍保持隐藏（模拟器已验，**待真机验证**）
 - [ ] 长时间游戏（>10 分钟）稳定、无输入漂移
 
 ---
