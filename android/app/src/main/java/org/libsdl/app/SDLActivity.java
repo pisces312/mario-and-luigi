@@ -510,6 +510,10 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
             mInputMapper.reloadIfChanged();
             updateTouchPadVisibility();
         }
+        // Mario & Luigi: apply touch button positions edited in the settings page (docs/BT-INPUT.md §4.5)
+        if (mTouchPad != null) {
+            mTouchPad.reloadLayout();
+        }
     }
 
     @Override

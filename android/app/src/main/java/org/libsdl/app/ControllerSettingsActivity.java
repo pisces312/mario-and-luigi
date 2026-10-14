@@ -5,6 +5,7 @@ package org.libsdl.app;
  * 1. 设备状态: 实时列出输入设备 + 手柄选择 (任意 / 按 descriptor)
  * 2. 按键映射: 动作行 + 捕获对话框 (按键 down 捕获 / 摇杆 |v|>0.7 判定, 追加式, 可清空本项)
  * 3. 操作: 恢复默认 / 测试模式 (大字显示 物理输入 -> 动作) / 自动隐藏触控开关
+ *          / 触控层按钮位置编辑 (全屏浮层 = TouchPadView 编辑模式, 拖组改位置, 松手即落盘)
  * 4. 说明: 配对指引与已知限制 (系统保留键, Ctrl+Space 输入法切换)
  * 所有改动立即写入 MappingStore (config_version 自增), 游戏 onResume 时热重载。
  */
@@ -47,6 +48,7 @@ public class ControllerSettingsActivity extends Activity implements InputManager
     private RadioGroup deviceRadio;
     private LinearLayout mappingRows;
     private TextView testView;
+    private TouchPadView layoutEditor;
     private boolean suppressRadioListener = false;
     private boolean testMode = false;
 
@@ -181,6 +183,32 @@ public class ControllerSettingsActivity extends Activity implements InputManager
         });
         col.addView(runBox);
 
+        // 触控层按钮位置: 编辑器浮层承载在本页 (不注入 P, 以免触发暂停忙等)
+        LinearLayout layoutOps = new LinearLayout(this);
+        layoutOps.setOrientation(LinearLayout.HORIZONTAL);
+
+        Button editLayoutBtn = new Button(this);
+        editLayoutBtn.setText("编辑触控按钮位置");
+        editLayoutBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openLayoutEditor();
+            }
+        });
+        layoutOps.addView(editLayoutBtn, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+        Button resetLayoutBtn = new Button(this);
+        resetLayoutBtn.setText("恢复默认布局");
+        resetLayoutBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                store.clearTouchLayout();
+                toast("已恢复默认按钮位置，返回游戏即生效");
+            }
+        });
+        layoutOps.addView(resetLayoutBtn, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        col.addView(layoutOps);
+
         testView = new TextView(this);
         testView.setTextSize(20);
         testView.setTypeface(Typeface.MONOSPACE);
@@ -199,7 +227,8 @@ public class ControllerSettingsActivity extends Activity implements InputManager
                 "· 默认映射：十字键/左摇杆=移动，A=跳(菜单=确认)，B/Y/L1/R2=跑，X=发弹，START=暂停，SELECT=返回。\n" +
                 "· 蓝牙键盘无需映射，方向/Alt/Ctrl/Space/Enter/Esc 直接可玩；也可用本页把键改到别的位置。\n" +
                 "· 一个物理键可绑定多个动作（如 A 同时是“跳跃”和“菜单确认”），互不冲突。\n" +
-                "· 触屏：左下十字热区四向滑动即换向，长按 ◀/▶ 约 220ms 自动跑（松开或换 ↑/↓ 退出），右下 A=跳、B=发弹；站管道口按住 ▼ 下管道。\n" +
+                "· 触屏：左下十字热区四向滑动即换向，长按 ◀/▶ 约 220ms 自动跑（松开或换 ↑/↓ 退出），右下 B=发弹、A=跳（红白机左右序）；站管道口按住 ▼ 下管道。\n" +
+                "· 按钮位置：「编辑触控按钮位置」进入拖拽编辑，十字方向键作为一个整体移动，松手即保存，回游戏立即生效；「恢复默认布局」撤销全部调整。\n" +
                 "· HOME/电源/音量/截图为系统保留键，无法捕获。Ctrl+Space 是系统输入法切换快捷键，可能被拦截。\n" +
                 "· 改键立即生效并永久保存；游戏中按触控层右上角 ⚙ 可随时回到本页。");
         col.addView(help);
@@ -207,6 +236,44 @@ public class ControllerSettingsActivity extends Activity implements InputManager
         ScrollView sv = new ScrollView(this);
         sv.addView(col);
         setContentView(sv);
+    }
+
+    // ---------------- 触控层按钮位置编辑器 ----------------
+
+    private void openLayoutEditor() {
+        if (layoutEditor != null) return;
+        try {
+            TouchPadView v = new TouchPadView(this);
+            v.setEditMode(true);
+            v.setOnEditDone(new TouchPadView.OnEditDone() {
+                @Override
+                public void onEditDone() {
+                    closeLayoutEditor();
+                }
+            });
+            layoutEditor = v;
+            addContentView(v, new ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        } catch (Throwable t) {
+            layoutEditor = null;
+            toast("编辑器打开失败: " + t);
+        }
+    }
+
+    private void closeLayoutEditor() {
+        if (layoutEditor == null) return;
+        TouchPadView v = layoutEditor;
+        layoutEditor = null;
+        try {
+            android.view.ViewParent p = v.getParent();
+            if (p instanceof ViewGroup) ((ViewGroup) p).removeView(v);
+        } catch (Throwable ignored) {}
+    }
+
+    private void toast(String s) {
+        try {
+            android.widget.Toast.makeText(this, s, android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Throwable ignored) {}
     }
 
     // ---------------- ①② 设备列表与选择 ----------------
@@ -484,6 +551,13 @@ public class ControllerSettingsActivity extends Activity implements InputManager
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
+        if (layoutEditor != null) {
+            // 编辑浮层打开期间: 返回键只关浮层 (位置已实时落盘), 其余按键一律不透传
+            if (e.getKeyCode() == KeyEvent.KEYCODE_BACK && e.getAction() == KeyEvent.ACTION_UP) {
+                closeLayoutEditor();
+            }
+            return true;
+        }
         if (capturingAction != null) {
             int kc = e.getKeyCode();
             if (kc == KeyEvent.KEYCODE_BACK) {

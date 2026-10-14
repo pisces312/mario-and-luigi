@@ -6,6 +6,7 @@ package org.libsdl.app;
  *   mapping_json       String  映射表 JSON (§6), 缺省/损坏/为空 -> 默认映射
  *   auto_hide_touchpad boolean 手柄在线时自动隐藏触控层, 默认 true
  *   touch_auto_run     boolean 触控层长按方向键自动跑, 默认 true
+ *   tp_layout          String  触控层按钮位置 "cx,cy;..."(归一化 0..1, 7 组), 缺省 = 内置默认布局
  *   config_version     int     每次写入自增, GamepadInputMapper 据此热重载
  * 读取失败一律回退默认, 不向游戏抛异常。
  */
@@ -30,6 +31,7 @@ public class MappingStore {
     private static final String K_MAPPING = "mapping_json";
     private static final String K_AUTOHIDE = "auto_hide_touchpad";
     private static final String K_AUTORUN = "touch_auto_run";
+    private static final String K_TP_LAYOUT = "tp_layout";
     private static final String K_VERSION = "config_version";
 
     // 动作表 (BT-INPUT.md §5)
@@ -111,6 +113,25 @@ public class MappingStore {
     public void setAutoRun(boolean b) {
         SharedPreferences.Editor e = sp.edit();
         e.putBoolean(K_AUTORUN, b);
+        bump(e);
+        e.apply();
+    }
+
+    /** 触控层按钮位置原始串; 未设置/被清除返回 null, 由调用方校验并回退默认布局 */
+    public String getTouchLayout() {
+        return sp.getString(K_TP_LAYOUT, null);
+    }
+
+    public void setTouchLayout(String s) {
+        SharedPreferences.Editor e = sp.edit();
+        e.putString(K_TP_LAYOUT, s);
+        bump(e);
+        e.apply();
+    }
+
+    public void clearTouchLayout() {
+        SharedPreferences.Editor e = sp.edit();
+        e.remove(K_TP_LAYOUT);
         bump(e);
         e.apply();
     }
